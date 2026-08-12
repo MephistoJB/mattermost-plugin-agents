@@ -33,12 +33,13 @@ jest.mock('@/components/select', () => ({
 
 jest.mock('@/components/access_control/policy_editor', () => ({
     __esModule: true,
-    default: (props: {resourceId: string; allowSimplified: boolean; allowAdvanced: boolean}) => (
+    default: (props: {resourceId: string; allowSimplified: boolean; allowAdvanced: boolean; hideWhenEmpty?: boolean}) => (
         <div
             data-testid='policy-editor'
             data-resource-id={props.resourceId}
             data-allow-simplified={String(props.allowSimplified)}
             data-allow-advanced={String(props.allowAdvanced)}
+            data-hide-when-empty={String(Boolean(props.hideWhenEmpty))}
         />
     ),
 }));
@@ -160,6 +161,7 @@ describe('AccessTab attribute-based access', () => {
         expect(editor.getAttribute('data-resource-id')).toBe('agentid');
         expect(editor.getAttribute('data-allow-simplified')).toBe('true');
         expect(editor.getAttribute('data-allow-advanced')).toBe('false');
+        expect(editor.getAttribute('data-hide-when-empty')).toBe('false');
     });
 
     it('enables the advanced editor for system admins', () => {
@@ -170,5 +172,23 @@ describe('AccessTab attribute-based access', () => {
         });
 
         expect(screen.getByTestId('policy-editor').getAttribute('data-allow-advanced')).toBe('true');
+    });
+
+    it('keeps a retained policy editor visible in legacy access modes', () => {
+        renderTab({
+            agentId: 'agentid',
+            draft: {userAccessLevel: UserAccessLevel.Allow},
+        });
+
+        const editor = screen.getByTestId('policy-editor');
+        expect(editor.getAttribute('data-hide-when-empty')).toBe('true');
+        expect(screen.getByText('Allow list')).toBeTruthy();
+    });
+
+    it('does not mount a retained-policy editor while creating', () => {
+        renderTab({
+            draft: {userAccessLevel: UserAccessLevel.All},
+        });
+        expect(screen.queryByTestId('policy-editor')).toBeNull();
     });
 });

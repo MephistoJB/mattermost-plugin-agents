@@ -30,19 +30,24 @@ const AccessTab = (props: Props) => {
 
     const attributeBasedSelected = draft.userAccessLevel === UserAccessLevel.AttributeBased;
 
+    const policyEditor = agentId && abacSupported ? (
+        <PolicyEditor
+            resourceType='agent'
+            resourceId={agentId}
+            resourceDisplayName={draft.displayName}
+            allowSimplified={true}
+            allowAdvanced={isSystemAdmin}
+            agentIdForAuthz={agentId}
+            hideWhenEmpty={!attributeBasedSelected}
+        />
+    ) : null;
+
     let attributeBasedContent: React.ReactNode = null;
     if (attributeBasedSelected) {
-        if (abacSupported && agentId) {
+        if (policyEditor) {
             attributeBasedContent = (
                 <PolicyEditorWrapper>
-                    <PolicyEditor
-                        resourceType='agent'
-                        resourceId={agentId}
-                        resourceDisplayName={draft.displayName}
-                        allowSimplified={true}
-                        allowAdvanced={isSystemAdmin}
-                        agentIdForAuthz={agentId}
-                    />
+                    {policyEditor}
                 </PolicyEditorWrapper>
             );
         } else if (abacSupported) {
@@ -98,6 +103,12 @@ const AccessTab = (props: Props) => {
                     </HelpTextInSecondColumn>
                 </FormRow>
             </ItemList>
+
+            {!attributeBasedSelected && policyEditor && (
+                <PolicyEditorWrapper>
+                    {policyEditor}
+                </PolicyEditorWrapper>
+            )}
 
             {/* Admin Access Section */}
             <ItemList>
