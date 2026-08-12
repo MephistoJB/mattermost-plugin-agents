@@ -875,7 +875,7 @@ export async function getPluginConfig(): Promise<PluginConfig> {
     });
 }
 
-export async function savePluginConfig(config: PluginConfig): Promise<void> {
+export async function savePluginConfig(config: PluginConfig): Promise<PluginConfig> {
     const url = `${baseRoute()}/admin/config`;
     const response = await fetch(url, Client4.getOptions({
         method: 'PUT',
@@ -884,7 +884,7 @@ export async function savePluginConfig(config: PluginConfig): Promise<void> {
     }));
 
     if (response.ok) {
-        return;
+        return response.json();
     }
 
     throw new ClientError(Client4.url, {
