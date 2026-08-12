@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Audit event names for every state-changing operation in the plugin: 21
+// Audit event names for every state-changing operation in the plugin: 27
 // routed events plus the non-gin MCP session grant. All are declared here,
 // including ones whose instrumentation lands in later changes, so call sites
 // never use inline string literals and parallel work never edits this file.
@@ -59,6 +59,14 @@ const (
 	// delegateToMCPHandler when a session is newly created, so it has no
 	// registry entry below.
 	AuditEventMCPSessionGrant = "mcpSessionGrant"
+
+	// Access-policy authoring. GET is read-only and is not audited.
+	AuditEventPutAgentPolicy      = "putAgentAccessPolicy"
+	AuditEventDeleteAgentPolicy   = "deleteAgentAccessPolicy"
+	AuditEventPutServicePolicy    = "putServiceAccessPolicy"
+	AuditEventDeleteServicePolicy = "deleteServiceAccessPolicy"
+	AuditEventPutMCPPolicy        = "putMCPAccessPolicy"
+	AuditEventDeleteMCPPolicy     = "deleteMCPAccessPolicy"
 )
 
 // handlerFuncName returns the fully-qualified function name of h, which is
@@ -113,5 +121,13 @@ func buildAuditEventRegistry(a *API) map[string]string {
 		// Tool approval.
 		handlerFuncName(a.handleToolCall):   AuditEventToolCallApproval,
 		handlerFuncName(a.handleToolResult): AuditEventToolResultApproval,
+
+		// Access-policy authoring.
+		handlerFuncName(a.handlePutAgentPolicy):      AuditEventPutAgentPolicy,
+		handlerFuncName(a.handleDeleteAgentPolicy):   AuditEventDeleteAgentPolicy,
+		handlerFuncName(a.handlePutServicePolicy):    AuditEventPutServicePolicy,
+		handlerFuncName(a.handleDeleteServicePolicy): AuditEventDeleteServicePolicy,
+		handlerFuncName(a.handlePutMCPPolicy):        AuditEventPutMCPPolicy,
+		handlerFuncName(a.handleDeleteMCPPolicy):     AuditEventDeleteMCPPolicy,
 	}
 }
