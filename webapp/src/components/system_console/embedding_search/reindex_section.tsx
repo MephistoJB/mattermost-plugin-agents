@@ -250,6 +250,7 @@ interface ReindexSectionProps {
     localMismatchReason: string;
     hasLocalHNSWMismatch: boolean;
     hasLocalRetentionWiden: boolean;
+    hasUnsavedRetentionWiden: boolean;
     hasLocalRetentionTighten: boolean;
     isJobStale: boolean;
     onReindexClick: () => void;
@@ -269,6 +270,7 @@ export const ReindexSection = ({
     localMismatchReason,
     hasLocalHNSWMismatch,
     hasLocalRetentionWiden,
+    hasUnsavedRetentionWiden,
     hasLocalRetentionTighten,
     isJobStale,
     onReindexClick,
@@ -292,7 +294,8 @@ export const ReindexSection = ({
         (jobStatus?.status === 'failed' || jobStatus?.status === 'canceled') &&
         (jobStatus?.processed_rows ?? 0) > 0;
 
-    const retentionCatchUpNeeded = hasLocalRetentionWiden || Boolean(healthCheckResult?.needs_catch_up);
+    const retentionCatchUpNeeded = (!hasUnsavedRetentionWiden && hasLocalRetentionWiden) ||
+        Boolean(healthCheckResult?.needs_catch_up);
     const indexHoles = Boolean(healthCheckResult &&
         healthCheckResult.indexed_post_count > 0 &&
         (healthCheckResult.missing_posts > 0 ||
@@ -384,7 +387,18 @@ export const ReindexSection = ({
                 </WarningBanner>
             )}
 
-            {hasLocalRetentionWiden && !hasLocalModelMismatch && (
+            {hasUnsavedRetentionWiden && !hasLocalModelMismatch && (
+                <WarningBanner>
+                    <WarningIcon>{'⚠️'}</WarningIcon>
+                    <WarningText>
+                        <strong><FormattedMessage defaultMessage='Index retention increased'/></strong>
+                        <br/>
+                        <FormattedMessage defaultMessage='Save the configuration before running Catch Up. Catch Up uses the saved retention window, not this unsaved value.'/>
+                    </WarningText>
+                </WarningBanner>
+            )}
+
+            {hasLocalRetentionWiden && !hasUnsavedRetentionWiden && !hasLocalModelMismatch && (
                 <WarningBanner>
                     <WarningIcon>{'⚠️'}</WarningIcon>
                     <WarningText>
@@ -506,7 +520,10 @@ export const ReindexSection = ({
                                 <FormattedMessage defaultMessage='Full Reindex'/>
                             </PrimaryButton>
                             {showCatchUp && (
-                                <TertiaryButton onClick={onCatchUpClick}>
+                                <TertiaryButton
+                                    onClick={onCatchUpClick}
+                                    disabled={embeddingIdentityMismatch}
+                                >
                                     <FormattedMessage defaultMessage='Catch Up'/>
                                 </TertiaryButton>
                             )}
