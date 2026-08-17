@@ -49,7 +49,7 @@ jest.mock('react-redux', () => ({
 }));
 
 jest.mock('@/utils/access_control', () => ({
-    useABACSupport: () => ({supported: false, checking: false}),
+    useABACSupport: () => ({supported: false, loading: false}),
 }));
 
 jest.mock('@/hooks/use_mcp_connection_events', () => ({
@@ -203,6 +203,8 @@ function renderView(onBack = jest.fn()) {
 describe('AgentConfigView', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        accessControlClient.getAgentAccessPolicy.mockReset();
+        accessControlClient.deleteAgentAccessPolicy.mockReset();
     });
 
     test('confirms before dismissing unsaved changes from back button', async () => {

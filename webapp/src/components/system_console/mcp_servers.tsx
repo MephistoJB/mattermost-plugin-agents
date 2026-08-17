@@ -79,6 +79,10 @@ const MCPServer = ({
     const [isEditingName, setIsEditingName] = useState(false);
     const [serverName, setServerName] = useState(serverConfig.name);
     const [isOAuthExpanded, setIsOAuthExpanded] = useState(Boolean(serverConfig.clientID));
+    const unnamedServerLabel = intl.formatMessage(
+        {defaultMessage: 'Server {number}'},
+        {number: serverIndex + 1},
+    );
 
     // Ensure server config has all required properties.
     // id must be carried through: dropping it here would rotate the server's
@@ -226,7 +230,7 @@ const MCPServer = ({
                     </ServerNameEditContainer>
                 ) : (
                     <ServerTitle onClick={() => setIsEditingName(true)}>
-                        {config.name || `Server ${serverIndex + 1}`}
+                        {config.name || unnamedServerLabel}
                     </ServerTitle>
                 )}
                 <DeleteButton onClick={onDelete}>
@@ -346,7 +350,7 @@ const MCPServer = ({
                 <ConsolePolicySection
                     resourceType='mcp'
                     resourceId={config.id}
-                    resourceDisplayName={config.name || `Server ${serverIndex + 1}`}
+                    resourceDisplayName={config.name || unnamedServerLabel}
                 />
             )}
         </ServerContainer>
