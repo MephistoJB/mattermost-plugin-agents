@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mattermost/mattermost-plugin-agents/v2/llm"
+	"github.com/mattermost/mattermost-plugin-agents/v2/mmapi"
 	mmapimocks "github.com/mattermost/mattermost-plugin-agents/v2/mmapi/mocks"
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/stretchr/testify/mock"
@@ -66,18 +67,77 @@ func TestNewOnlyAllowsCodexBackendBaseURL(t *testing.T) {
 	require.Equal(t, DefaultBaseURL, lm.baseURL)
 }
 
-func TestMissingTokenReturnsNeedsOAuthError(t *testing.T) {
+func TestMissingRequestUserReturnsNeedsOAuthError(t *testing.T) {
 	t.Parallel()
 
 	lm := New(Config{})
+	_, err := lm.ChatCompletionNoStream(context.Background(), llm.CompletionRequest{})
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrNeedsOAuth))
+	require.Contains(t, err.Error(), "missing Mattermost user context")
+}
+
+func TestMissingTokenReturnsNeedsOAuthError(t *testing.T) {
+	t.Parallel()
+
+	store := mmapimocks.NewMockClient(t)
+	store.On("KVGet", tokenKey(ProviderCredentialSubject), mock.AnythingOfType("*[]uint8")).Return(mmapi.ErrKVNotFound)
+	lm := New(Config{Store: store})
 	_, err := lm.ChatCompletionNoStream(context.Background(), llm.CompletionRequest{
 		Context: &llm.Context{
-			RequestingUser: &model.User{Id: "user-id"},
+			RequestingUser: &model.User{Id: "requesting-user-id"},
 		},
 	})
 
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNeedsOAuth))
+}
+
+func TestChatCompletionUsesGlobalProviderCredential(t *testing.T) {
+	t.Parallel()
+
+	env := &tokenEnvelope{
+		Version:      tokenVersion,
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(time.Hour),
+	}
+	raw, err := json.Marshal(env)
+	require.NoError(t, err)
+
+	store := mmapimocks.NewMockClient(t)
+	store.On("KVGet", tokenKey(ProviderCredentialSubject), mock.AnythingOfType("*[]uint8")).
+		Run(func(args mock.Arguments) {
+			target := args.Get(1).(*[]byte)
+			*target = raw
+		}).
+		Return(nil)
+
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, DefaultBaseURL+"/responses", req.URL.String())
+		require.Equal(t, "Bearer access-token", req.Header.Get("Authorization"))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+				`event: response.output_text.delta`,
+				`data: {"type":"response.output_text.delta","delta":"ok"}`,
+				``,
+			}, "\n"))),
+		}, nil
+	})}
+
+	lm := New(Config{Store: store, HTTPClient: client})
+	result, err := lm.ChatCompletionNoStream(context.Background(), llm.CompletionRequest{
+		Context: &llm.Context{
+			RequestingUser: &model.User{Id: "requesting-user-id"},
+		},
+		Posts: []llm.Post{{Role: llm.PostRoleUser, Message: "hello"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ok", result)
 }
 
 func TestOAuthDeviceCodeFlowExchangesDeviceCodeWithMockTokenEndpoint(t *testing.T) {
@@ -99,7 +159,7 @@ func TestOAuthDeviceCodeFlowExchangesDeviceCodeWithMockTokenEndpoint(t *testing.
 			*target = *storedSession
 		}).
 		Return(nil)
-	store.On("KVSet", tokenKey("user-id"), mock.AnythingOfType("*openaicodex.tokenEnvelope")).
+	store.On("KVSet", tokenKey(ProviderCredentialSubject), mock.AnythingOfType("*openaicodex.tokenEnvelope")).
 		Run(func(args mock.Arguments) {
 			storedToken = args.Get(1).(*tokenEnvelope)
 		}).

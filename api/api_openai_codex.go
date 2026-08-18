@@ -24,7 +24,7 @@ func (a *API) openAICodexManager() *openaicodex.Manager {
 }
 
 func (a *API) handleOpenAICodexStatus(c *gin.Context) {
-	status, err := a.openAICodexManager().Status(c.GetHeader("Mattermost-User-Id"))
+	status, err := a.openAICodexManager().ProviderStatus()
 	if err != nil {
 		c.AbortWithError(http.StatusInternalServerError, fmt.Errorf("failed to load provider status: %w", err))
 		return
@@ -69,7 +69,7 @@ func (a *API) handleOpenAICodexDisconnect(c *gin.Context) {
 		c.AbortWithError(http.StatusBadRequest, err)
 		return
 	}
-	if err := a.openAICodexManager().Disconnect(c.Request.Context(), c.GetHeader("Mattermost-User-Id")); err != nil {
+	if err := a.openAICodexManager().DisconnectProvider(c.Request.Context()); err != nil {
 		c.AbortWithError(http.StatusInternalServerError, fmt.Errorf("failed to disconnect provider login: %w", err))
 		return
 	}

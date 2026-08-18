@@ -32,8 +32,12 @@ const (
 	sessionTTL        = 15 * time.Minute
 	refreshEarly      = 120 * time.Second
 	refreshLeaseTTL   = 35 * time.Second
-	refreshLeaseWait  = 2 * time.Second
+	refreshLeaseWait  = 10 * time.Second
 )
+
+// ProviderCredentialSubject is the single server-side credential slot for the
+// globally configured Mattermost Agents provider.
+const ProviderCredentialSubject = "provider"
 
 type ManagerConfig struct {
 	Store      mmapi.Client
@@ -104,7 +108,15 @@ func NewManager(cfg ManagerConfig) *Manager {
 }
 
 func (m *Manager) Status(userID string) (Status, error) {
-	env, _, err := m.loadToken(userID)
+	return m.statusForSubject(userID)
+}
+
+func (m *Manager) ProviderStatus() (Status, error) {
+	return m.statusForSubject(ProviderCredentialSubject)
+}
+
+func (m *Manager) statusForSubject(subject string) (Status, error) {
+	env, _, err := m.loadToken(subject)
 	if err != nil {
 		return Status{}, err
 	}
@@ -236,7 +248,7 @@ func (m *Manager) PollDeviceFlow(ctx context.Context, userID, sessionID string) 
 	if err != nil {
 		return Status{}, err
 	}
-	if err := m.storeToken(userID, token); err != nil {
+	if err := m.storeToken(ProviderCredentialSubject, token); err != nil {
 		return Status{}, err
 	}
 	_ = m.store.KVDelete(sessionKey(userID, sessionID))
@@ -264,6 +276,10 @@ func (m *Manager) AccessToken(ctx context.Context, userID string) (string, error
 
 func (m *Manager) Disconnect(ctx context.Context, userID string) error {
 	return m.deleteToken(userID)
+}
+
+func (m *Manager) DisconnectProvider(ctx context.Context) error {
+	return m.deleteToken(ProviderCredentialSubject)
 }
 
 func (m *Manager) exchangeAuthorizationCode(ctx context.Context, code, verifier string) (*tokenEnvelope, error) {
@@ -295,10 +311,7 @@ func (m *Manager) refreshAccessToken(ctx context.Context, userID string, env *to
 				return current.AccessToken, nil
 			}
 		}
-		if time.Until(env.Expiry) <= 0 {
-			return "", fmt.Errorf("token refresh is already in progress")
-		}
-		return env.AccessToken, nil
+		return "", fmt.Errorf("token refresh is already in progress")
 	}
 	defer func() {
 		_, _ = m.store.KVCompareAndSet(refreshLeaseKey(userID), leaseID, nil)

@@ -74,12 +74,11 @@ func New(cfg Config) *LLM {
 
 func (l *LLM) ChatCompletion(ctx context.Context, request llm.CompletionRequest, opts ...llm.LanguageModelOption) (*llm.TextStreamResult, error) {
 	cfg := l.createConfig(opts)
-	userID, err := requestUserID(request)
-	if err != nil {
+	if err := requireRequestUser(request); err != nil {
 		return nil, err
 	}
 
-	token, err := l.manager.AccessToken(ctx, userID)
+	token, err := l.manager.AccessToken(ctx, ProviderCredentialSubject)
 	if err != nil {
 		return nil, err
 	}
@@ -134,11 +133,11 @@ func (l *LLM) createConfig(opts []llm.LanguageModelOption) llm.LanguageModelConf
 	return cfg
 }
 
-func requestUserID(request llm.CompletionRequest) (string, error) {
+func requireRequestUser(request llm.CompletionRequest) error {
 	if request.Context == nil || request.Context.RequestingUser == nil || request.Context.RequestingUser.Id == "" {
-		return "", fmt.Errorf("%w: missing Mattermost user context", ErrNeedsOAuth)
+		return fmt.Errorf("%w: missing Mattermost user context", ErrNeedsOAuth)
 	}
-	return request.Context.RequestingUser.Id, nil
+	return nil
 }
 
 func isAllowedBaseURL(raw string) bool {
