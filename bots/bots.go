@@ -20,6 +20,7 @@ import (
 	"github.com/mattermost/mattermost-plugin-agents/v2/llm"
 	"github.com/mattermost/mattermost-plugin-agents/v2/loadtest"
 	"github.com/mattermost/mattermost-plugin-agents/v2/mmapi"
+	"github.com/mattermost/mattermost-plugin-agents/v2/openaicodex"
 	"github.com/mattermost/mattermost-plugin-agents/v2/subtitles"
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/pluginapi"
@@ -485,6 +486,18 @@ func (b *MMBots) getBaseLLM(serviceConfig llm.ServiceConfig, botConfig llm.BotCo
 			)
 		}
 		return loadtest.NewMockLLM(profile), nil
+	}
+	if serviceConfig.Type == llm.ServiceTypeOpenAICodex {
+		var store mmapi.Client
+		if b.pluginAPI != nil {
+			store = mmapi.NewClient(b.pluginAPI)
+		}
+		return openaicodex.New(openaicodex.Config{
+			Service:    serviceConfig,
+			Bot:        botConfig,
+			Store:      store,
+			HTTPClient: b.llmUpstreamHTTPClient,
+		}), nil
 	}
 
 	bifrostLLM, err := bifrost.NewFromServiceConfig(serviceConfig, botConfig, fallbackServices)

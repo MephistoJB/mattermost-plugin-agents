@@ -40,6 +40,20 @@ export type UserMCPToolsResponse = {
     servers: UserMCPServerInfo[];
 };
 
+export type OpenAICodexOAuthStatus = {
+    connected: boolean;
+    expiresAt?: string;
+    lastError?: string;
+};
+
+export type OpenAICodexDeviceStart = {
+    sessionID: string;
+    userCode: string;
+    verificationURI: string;
+    expiresAt: string;
+    intervalSeconds: number;
+};
+
 // Mirrors components/system_console/mcp_servers.tsx MCPToolConfig; duplicated to
 // avoid client.tsx depending on UI components.
 type MCPToolConfig = {
@@ -733,6 +747,75 @@ export async function fetchModels(serviceType: string, apiKey: string, apiURL: s
 
     if (response.ok) {
         return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getOpenAICodexOAuthStatus(): Promise<OpenAICodexOAuthStatus> {
+    const url = `${baseRoute()}/admin/openai-codex/oauth/status`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'GET',
+    }));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function startOpenAICodexOAuth(): Promise<OpenAICodexDeviceStart> {
+    const url = `${baseRoute()}/admin/openai-codex/oauth/start`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+    }));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function pollOpenAICodexOAuth(sessionID: string): Promise<OpenAICodexOAuthStatus> {
+    const url = `${baseRoute()}/admin/openai-codex/oauth/poll`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+        body: JSON.stringify({sessionID}),
+    }));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function disconnectOpenAICodexOAuth(): Promise<void> {
+    const url = `${baseRoute()}/admin/openai-codex/oauth`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'DELETE',
+    }));
+
+    if (response.ok) {
+        return;
     }
 
     throw new ClientError(Client4.url, {

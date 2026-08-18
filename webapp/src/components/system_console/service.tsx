@@ -9,9 +9,17 @@ import {TrashCanOutlineIcon, ChevronDownIcon, ChevronUpIcon} from '@mattermost/c
 
 import IconAI from '../assets/icon_ai';
 
-import {ButtonIcon} from '../assets/buttons';
+import {ButtonIcon, PrimaryButton, TertiaryButton} from '../assets/buttons';
 
-import {fetchModels} from '../../client';
+import {
+    disconnectOpenAICodexOAuth,
+    fetchModels,
+    getOpenAICodexOAuthStatus,
+    pollOpenAICodexOAuth,
+    startOpenAICodexOAuth,
+    type OpenAICodexDeviceStart,
+    type OpenAICodexOAuthStatus,
+} from '../../client';
 
 import {BooleanItem, ItemList, SelectionItem, SelectionItemOption, TextItem, ComboboxItem} from './item';
 
@@ -43,6 +51,7 @@ export type LLMService = {
 
 const mapServiceTypeToDisplayName = new Map<string, string>([
     ['openai', 'OpenAI'],
+    ['openai-codex', 'OpenAI Codex Login'],
     ['openaicompatible', 'OpenAI Compatible'],
     ['azure', 'Azure'],
     ['anthropic', 'Anthropic'],
@@ -87,10 +96,15 @@ export const ServiceFields = (props: ServiceFieldsProps) => {
     const isCohere = type === 'cohere';
     const isMistral = type === 'mistral';
     const isScale = type === 'scale';
+    const isOpenAICodex = type === 'openai-codex';
 
     const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
     const [loadingModels, setLoadingModels] = useState(false);
     const [modelsFetchError, setModelsFetchError] = useState<string>('');
+    const [codexStatus, setCodexStatus] = useState<OpenAICodexOAuthStatus | null>(null);
+    const [codexDeviceStart, setCodexDeviceStart] = useState<OpenAICodexDeviceStart | null>(null);
+    const [codexOAuthLoading, setCodexOAuthLoading] = useState(false);
+    const [codexOAuthError, setCodexOAuthError] = useState('');
 
     // Cached admin entries so toggling to a Bifrost-known model and back
     // restores the prior manual values instead of the auto-detected ones.
@@ -130,6 +144,64 @@ export const ServiceFields = (props: ServiceFieldsProps) => {
             props.onChange({...props.service, useResponsesAPI: true});
         }
     }, [type, props.onChange, props.service]);
+
+    useEffect(() => {
+        let active = true;
+        if (isOpenAICodex) {
+            getOpenAICodexOAuthStatus().
+                then((status) => {
+                    if (active) {
+                        setCodexStatus(status);
+                    }
+                }).
+                catch(() => {
+                    if (active) {
+                        setCodexOAuthError(intl.formatMessage({defaultMessage: 'Unable to load login status.'}));
+                    }
+                });
+        } else {
+            setCodexStatus(null);
+            setCodexDeviceStart(null);
+            setCodexOAuthError('');
+        }
+
+        return () => {
+            active = false;
+        };
+    }, [isOpenAICodex, intl]);
+
+    useEffect(() => {
+        let active = true;
+        let timeout: number | null = null;
+        if (isOpenAICodex && codexDeviceStart && !codexStatus?.connected) {
+            const poll = async () => {
+                try {
+                    const status = await pollOpenAICodexOAuth(codexDeviceStart.sessionID);
+                    if (!active) {
+                        return;
+                    }
+                    setCodexStatus(status);
+                    if (status.connected || status.lastError) {
+                        setCodexDeviceStart(null);
+                        setCodexOAuthLoading(false);
+                    }
+                } catch {
+                    if (active) {
+                        setCodexOAuthError(intl.formatMessage({defaultMessage: 'Login check failed. Try again.'}));
+                        setCodexOAuthLoading(false);
+                    }
+                }
+            };
+
+            timeout = window.setTimeout(poll, Math.max(codexDeviceStart.intervalSeconds, 3) * 1000);
+        }
+        return () => {
+            active = false;
+            if (timeout !== null) {
+                window.clearTimeout(timeout);
+            }
+        };
+    }, [isOpenAICodex, codexDeviceStart, codexStatus?.connected, intl]);
 
     useEffect(() => {
         // Providers have different credential shapes for model listing:
@@ -213,6 +285,35 @@ export const ServiceFields = (props: ServiceFieldsProps) => {
     const effectiveInputLimit = inputAutoFromProvider ? (bifrostInputTokenLimit as number) : manualInputLimit;
     const effectiveOutputLimit = outputAutoFromProvider ? (bifrostOutputTokenLimit as number) : manualOutputLimit;
 
+    const startCodexLogin = async () => {
+        setCodexOAuthLoading(true);
+        setCodexOAuthError('');
+        try {
+            const start = await startOpenAICodexOAuth();
+            setCodexDeviceStart(start);
+            setCodexStatus({connected: false});
+            window.open(start.verificationURI, '_blank', 'noopener,noreferrer');
+        } catch {
+            setCodexOAuthError(intl.formatMessage({defaultMessage: 'Unable to start login.'}));
+        } finally {
+            setCodexOAuthLoading(false);
+        }
+    };
+
+    const disconnectCodexLogin = async () => {
+        setCodexOAuthLoading(true);
+        setCodexOAuthError('');
+        try {
+            await disconnectOpenAICodexOAuth();
+            setCodexStatus({connected: false});
+            setCodexDeviceStart(null);
+        } catch {
+            setCodexOAuthError(intl.formatMessage({defaultMessage: 'Unable to disconnect login.'}));
+        } finally {
+            setCodexOAuthLoading(false);
+        }
+    };
+
     useEffect(() => {
         const inputDrift = props.service.tokenLimit !== effectiveInputLimit;
         const outputDrift = props.service.outputTokenLimit !== effectiveOutputLimit;
@@ -252,6 +353,7 @@ export const ServiceFields = (props: ServiceFieldsProps) => {
                 }}
             >
                 <SelectionItemOption value='openai'>{'OpenAI'}</SelectionItemOption>
+                <SelectionItemOption value='openai-codex'>{'OpenAI Codex Login'}</SelectionItemOption>
                 <SelectionItemOption value='anthropic'>{'Anthropic'}</SelectionItemOption>
                 <SelectionItemOption value='gemini'>{'Google Gemini'}</SelectionItemOption>
                 <SelectionItemOption value='vertex'>{'Google Vertex AI'}</SelectionItemOption>
@@ -329,7 +431,7 @@ export const ServiceFields = (props: ServiceFieldsProps) => {
                     />
                 </>
             )}
-            {type !== 'vertex' && (
+            {type !== 'vertex' && !isOpenAICodex && (
                 <TextItem
                     label={intl.formatMessage({defaultMessage: 'API Key'})}
                     type='password'
@@ -339,7 +441,52 @@ export const ServiceFields = (props: ServiceFieldsProps) => {
                     helptext={type === 'bedrock' ? intl.formatMessage({defaultMessage: 'Optional. Bedrock console API key (base64 encoded). If IAM credentials above are set, they take precedence.'}) : undefined}
                 />
             )}
-            {isOpenAIType && (
+            {isOpenAICodex && (
+                <OpenAICodexOAuthPanel>
+                    <OpenAICodexStatus>
+                        {codexStatus?.connected ? intl.formatMessage({defaultMessage: 'Connected'}) : intl.formatMessage({defaultMessage: 'Not connected'})}
+                        {codexStatus?.expiresAt && (
+                            <OpenAICodexStatusDetail>
+                                {intl.formatMessage({defaultMessage: 'Token expires {date}'}, {date: new Date(codexStatus.expiresAt).toLocaleString()})}
+                            </OpenAICodexStatusDetail>
+                        )}
+                    </OpenAICodexStatus>
+                    {codexDeviceStart && (
+                        <OpenAICodexDeviceBox>
+                            <OpenAICodexCode>{codexDeviceStart.userCode}</OpenAICodexCode>
+                            <OpenAICodexLink
+                                href={codexDeviceStart.verificationURI}
+                                target='_blank'
+                                rel='noreferrer'
+                            >
+                                {codexDeviceStart.verificationURI}
+                            </OpenAICodexLink>
+                        </OpenAICodexDeviceBox>
+                    )}
+                    {(codexOAuthError || codexStatus?.lastError) && (
+                        <OpenAICodexError>{codexOAuthError || codexStatus?.lastError}</OpenAICodexError>
+                    )}
+                    <OpenAICodexActions>
+                        <OpenAICodexPrimaryButton
+                            type='button'
+                            disabled={codexOAuthLoading}
+                            onClick={startCodexLogin}
+                        >
+                            {codexStatus?.connected ? intl.formatMessage({defaultMessage: 'Reauthenticate'}) : intl.formatMessage({defaultMessage: 'Start login'})}
+                        </OpenAICodexPrimaryButton>
+                        {codexStatus?.connected && (
+                            <OpenAICodexSecondaryButton
+                                type='button'
+                                disabled={codexOAuthLoading}
+                                onClick={disconnectCodexLogin}
+                            >
+                                {intl.formatMessage({defaultMessage: 'Disconnect'})}
+                            </OpenAICodexSecondaryButton>
+                        )}
+                    </OpenAICodexActions>
+                </OpenAICodexOAuthPanel>
+            )}
+            {isOpenAIType && !isOpenAICodex && (
                 <>
                     {!isCohere && !isMistral && (
                         <TextItem
@@ -553,6 +700,70 @@ const HeaderContainer = styled.div`
 	gap: 16px;
 	padding: 12px 16px 12px 20px;
 	cursor: pointer;
+`;
+
+const OpenAICodexOAuthPanel = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 16px;
+	border: 1px solid rgba(var(--center-channel-color-rgb), 0.12);
+	border-radius: 4px;
+	background: rgba(var(--center-channel-color-rgb), 0.04);
+`;
+
+const OpenAICodexStatus = styled.div`
+	font-size: 14px;
+	font-weight: 600;
+	color: rgba(var(--center-channel-color-rgb), 0.88);
+`;
+
+const OpenAICodexStatusDetail = styled.span`
+	margin-left: 8px;
+	font-weight: 400;
+	color: rgba(var(--center-channel-color-rgb), 0.56);
+`;
+
+const OpenAICodexDeviceBox = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+`;
+
+const OpenAICodexCode = styled.div`
+	width: fit-content;
+	padding: 8px 12px;
+	border-radius: 4px;
+	background: rgba(var(--center-channel-color-rgb), 0.08);
+	font-family: monospace;
+	font-size: 18px;
+	font-weight: 700;
+	letter-spacing: 0;
+`;
+
+const OpenAICodexLink = styled.a`
+	width: fit-content;
+	font-size: 13px;
+`;
+
+const OpenAICodexError = styled.div`
+	color: var(--error-text);
+	font-size: 13px;
+`;
+
+const OpenAICodexActions = styled.div`
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+`;
+
+const OpenAICodexPrimaryButton = styled(PrimaryButton)`
+	height: 36px;
+`;
+
+const OpenAICodexSecondaryButton = styled(TertiaryButton)`
+	height: 36px;
 `;
 
 export default Service;

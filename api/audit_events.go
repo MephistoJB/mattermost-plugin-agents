@@ -27,6 +27,9 @@ const (
 	AuditEventCatchUpReindex        = "catchUpReindex"
 	AuditEventClearMCPToolsCache    = "clearMCPToolsCache"
 	AuditEventUpdateMCPPluginServer = "updateMCPPluginServer"
+	AuditEventOpenAICodexOAuthStart = "openAICodexOAuthStart"
+	AuditEventOpenAICodexOAuthPoll  = "openAICodexOAuthPoll"
+	AuditEventOpenAICodexDisconnect = "openAICodexDisconnect"
 
 	// Agent CRUD.
 	AuditEventCreateAgent       = "createAgent"
@@ -83,11 +86,14 @@ func buildAuditEventRegistry(a *API) map[string]string {
 		handlerFuncName(a.handleSaveConfig): AuditEventSaveConfig,
 
 		// Admin operations.
-		handlerFuncName(a.handleReindexPosts):       AuditEventReindexPosts,
-		handlerFuncName(a.handleCancelJob):          AuditEventCancelReindexJob,
-		handlerFuncName(a.handleCatchUpIndex):       AuditEventCatchUpReindex,
-		handlerFuncName(a.handleClearMCPToolsCache): AuditEventClearMCPToolsCache,
-		handlerFuncName(a.handleUpdatePluginServer): AuditEventUpdateMCPPluginServer,
+		handlerFuncName(a.handleReindexPosts):          AuditEventReindexPosts,
+		handlerFuncName(a.handleCancelJob):             AuditEventCancelReindexJob,
+		handlerFuncName(a.handleCatchUpIndex):          AuditEventCatchUpReindex,
+		handlerFuncName(a.handleClearMCPToolsCache):    AuditEventClearMCPToolsCache,
+		handlerFuncName(a.handleUpdatePluginServer):    AuditEventUpdateMCPPluginServer,
+		handlerFuncName(a.handleOpenAICodexStart):      AuditEventOpenAICodexOAuthStart,
+		handlerFuncName(a.handleOpenAICodexPoll):       AuditEventOpenAICodexOAuthPoll,
+		handlerFuncName(a.handleOpenAICodexDisconnect): AuditEventOpenAICodexDisconnect,
 
 		// Agent CRUD.
 		handlerFuncName(a.handleCreateAgent):       AuditEventCreateAgent,

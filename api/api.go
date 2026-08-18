@@ -388,6 +388,10 @@ func (a *API) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Reques
 	adminRouter.POST("/models/fetch", a.handleFetchModels)
 	adminRouter.GET("/config", a.handleGetConfig)
 	adminRouter.PUT("/config", a.handleSaveConfig)
+	adminRouter.GET("/openai-codex/oauth/status", a.handleOpenAICodexStatus)
+	adminRouter.POST("/openai-codex/oauth/start", a.handleOpenAICodexStart)
+	adminRouter.POST("/openai-codex/oauth/poll", a.handleOpenAICodexPoll)
+	adminRouter.DELETE("/openai-codex/oauth", a.handleOpenAICodexDisconnect)
 
 	searchRouter := botRequiredRouter.Group("/search")
 	// Only returns search results

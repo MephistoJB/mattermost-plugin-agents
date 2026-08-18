@@ -296,6 +296,8 @@ func IsValidService(service ServiceConfig) bool {
 	switch service.Type {
 	case ServiceTypeOpenAI:
 		return service.APIKey != ""
+	case ServiceTypeOpenAICodex:
+		return true
 	case ServiceTypeOpenAICompatible:
 		return service.APIURL != ""
 	case ServiceTypeAzure:
