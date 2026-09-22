@@ -45,6 +45,7 @@ func setupAdminTestEnvironment(t *testing.T) (*API, *plugintest.API, *adminTestS
 	gin.DefaultWriter = io.Discard
 
 	mockAPI := &plugintest.API{}
+	mockAPI.On("LogAuditRec", mock.Anything).Maybe()
 	client := pluginapi.NewClient(mockAPI, nil)
 
 	cfg := &testConfigImpl{}

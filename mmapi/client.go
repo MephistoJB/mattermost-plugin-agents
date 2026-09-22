@@ -86,6 +86,19 @@ func (m *client) GetChannel(channelID string) (*model.Channel, error) {
 	return m.pluginAPI.Channel.Get(channelID)
 }
 
+// IsChannelMember checks actual membership, including in public channels where
+// read permission alone does not imply that the bot was invited.
+func (m *client) IsChannelMember(channelID, userID string) (bool, error) {
+	member, err := m.pluginAPI.Channel.GetMember(channelID, userID)
+	if errors.Is(err, pluginapi.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return member != nil, nil
+}
+
 func (m *client) GetDirectChannel(userID1, userID2 string) (*model.Channel, error) {
 	return m.pluginAPI.Channel.GetDirect(userID1, userID2)
 }

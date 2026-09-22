@@ -563,6 +563,39 @@ func TestStreamToPostTurnPersistence(t *testing.T) {
 		require.Contains(t, blocks[0].Text, "An error occurred")
 	})
 
+	t.Run("string error persists user-facing text", func(t *testing.T) {
+		ts := &fakeTurnStore{}
+		client := &fakeStreamingClient{
+			channels: map[string]*model.Channel{
+				channelID: {Id: channelID, Type: model.ChannelTypeDirect, Name: botID + "__" + requesterID},
+			},
+		}
+		service := NewMMPostStreamService(client, i18n.Init())
+		service.SetTurnStore(ts)
+
+		post := &model.Post{Id: postID, ChannelId: channelID, UserId: botID}
+		post.AddProp(ConversationIDProp, conversationID)
+
+		streamChannel := make(chan llm.TextStreamEvent, 2)
+		streamChannel <- llm.TextStreamEvent{Type: llm.EventTypeText, Value: "Partial"}
+		streamChannel <- llm.TextStreamEvent{Type: llm.EventTypeError, Value: "This request was blocked by runtime policy."}
+		close(streamChannel)
+
+		service.StreamToPost(context.Background(), &llm.TextStreamResult{Stream: streamChannel}, post, "en", "test-user-id")
+
+		ts.mu.Lock()
+		defer ts.mu.Unlock()
+		streamTurn := findStreamTurn(ts.turns, postID)
+		require.NotNil(t, streamTurn)
+		blocks := parseContentBlocks(t, streamTurn.Content)
+		require.Len(t, blocks, 1)
+		require.Equal(t, conversation.BlockTypeText, blocks[0].Type)
+		require.Contains(t, blocks[0].Text, "Partial")
+		require.Contains(t, blocks[0].Text, "This request was blocked by runtime policy.")
+		require.Contains(t, post.Message, "This request was blocked by runtime policy.")
+		require.NotContains(t, post.Message, "An error occurred")
+	})
+
 	t.Run("cancellation persists partial content", func(t *testing.T) {
 		ts := &fakeTurnStore{}
 		client := &fakeStreamingClient{

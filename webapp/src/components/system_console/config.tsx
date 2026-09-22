@@ -19,6 +19,13 @@ import EmbeddingSearchPanel from './embedding_search/embedding_search_panel';
 import {REINDEX_DEFAULTS, REINDEX_INDEX_STRATEGY} from './embedding_search/types';
 import MCPServers from './mcp_servers';
 import {PluginConfig} from './plugin_config_types';
+import HermesOffChecklistPanel from './hermes_off_checklist_panel';
+import RuntimeHealthPanel from './runtime_health_panel';
+import RuntimeApprovalsPanel from './runtime_approvals_panel';
+import RuntimePoliciesPanel from './runtime_policies_panel';
+import RuntimeSessionsPanel from './runtime_sessions_panel';
+import RuntimeTasksPanel from './runtime_tasks_panel';
+import WorkspacePoliciesPanel from './workspace_policies_panel';
 import WebSearchPanel from './web_search/web_search_panel';
 
 type Config = PluginConfig;
@@ -46,20 +53,20 @@ type Props = {
 }
 
 const MessageContainer = styled.div`
-	display: flex;
-	align-items: center;
-	flex-direction: row;
-	gap: 5px;
-	padding: 10px 12px;
-	background: white;
-	border-radius: 4px;
-	border: 1px solid rgba(63, 67, 80, 0.08);
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    gap: 5px;
+    padding: 10px 12px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid rgba(63, 67, 80, 0.08);
 `;
 
 const ConfigContainer = styled.div`
-	display: flex;
-	flex-direction: column;
-	gap: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 `;
 
 const Horizontal = styled.div`
@@ -110,6 +117,14 @@ const defaultConfig: Config = {
     allowUnsafeLinks: false,
     enableChannelMentionToolCalling: false,
     allowNativeWebSearchInChannels: false,
+    enableAgentRuntimeControlPlane: false,
+    codexRuntime: {
+        commandPath: '',
+        transport: '',
+        extraArgs: '',
+        home: '',
+    },
+    runtimeCostRates: [],
     embeddingSearchConfig: {
         type: '',
         vectorStore: {
@@ -185,6 +200,8 @@ const Config = (props: Props) => {
     const [loadError, setLoadError] = useState<string | null>(null);
     const [runtimeBots, setRuntimeBots] = useState<RuntimeBotOption[]>([]);
     const [runtimeBotsError, setRuntimeBotsError] = useState<string | null>(null);
+    const [runtimeCostRatesText, setRuntimeCostRatesText] = useState('[]');
+    const [runtimeCostRatesError, setRuntimeCostRatesError] = useState<string | null>(null);
     const intl = useIntl();
 
     // Load config from plugin API on mount
@@ -192,7 +209,9 @@ const Config = (props: Props) => {
         const loadConfig = async () => {
             try {
                 const cfg = await getPluginConfig();
-                setLocalConfig({...defaultConfig, ...cfg});
+                const configWithDefaults = {...defaultConfig, ...cfg};
+                setLocalConfig(configWithDefaults);
+                setRuntimeCostRatesText(JSON.stringify(configWithDefaults.runtimeCostRates || [], null, 2));
                 setLoadError(null);
             } catch (e: any) {
                 setLoadError(intl.formatMessage({defaultMessage: 'Failed to load configuration.'}));
@@ -239,6 +258,21 @@ const Config = (props: Props) => {
         setLocalConfig((prev) => ({...prev, ...updates}));
         props.setSaveNeeded();
     }, [props.setSaveNeeded]);
+
+    const updateRuntimeCostRates = useCallback((value: string) => {
+        setRuntimeCostRatesText(value);
+        try {
+            const parsed = JSON.parse(value);
+            if (!Array.isArray(parsed)) {
+                setRuntimeCostRatesError(intl.formatMessage({defaultMessage: 'Runtime cost rates must be a JSON array.'}));
+                return;
+            }
+            updateConfig({runtimeCostRates: parsed});
+            setRuntimeCostRatesError(null);
+        } catch {
+            setRuntimeCostRatesError(intl.formatMessage({defaultMessage: 'Runtime cost rates must be valid JSON.'}));
+        }
+    }, [intl, updateConfig]);
 
     const addFirstService = () => {
         const id = crypto.randomUUID();
@@ -367,8 +401,68 @@ const Config = (props: Props) => {
                         }}
                         helpText={intl.formatMessage({defaultMessage: 'When enabled, bots with native web search (Anthropic Claude, OpenAI with Responses API) can use their built-in web search capability in public and private channels, not just direct messages. This only affects native provider web search, not custom tools or MCP integrations.'})}
                     />
+                    <BooleanItem
+                        label={
+                            <Horizontal>
+                                <FormattedMessage defaultMessage='Enable Agent Runtime Control Plane'/>
+                                <Pill><FormattedMessage defaultMessage='EXPERIMENTAL'/></Pill>
+                            </Horizontal>
+                        }
+                        value={Boolean(value.enableAgentRuntimeControlPlane)}
+                        onChange={(to) => {
+                            updateConfig({enableAgentRuntimeControlPlane: to});
+                        }}
+                        helpText={intl.formatMessage({defaultMessage: 'Enables Codex/local runtime sessions, channel and thread runtime policies, approvals, autonomous tasks, reminders, supervisor orchestration, and voice flows.'})}
+                    />
+                    <TextItem
+                        label={intl.formatMessage({defaultMessage: 'Codex runtime command'})}
+                        value={value.codexRuntime?.commandPath || ''}
+                        onChange={(e) => updateConfig({codexRuntime: {...value.codexRuntime, commandPath: e.target.value}})}
+                        helptext={intl.formatMessage({defaultMessage: 'Absolute path or command name for Codex. Leave empty to use the server environment or PATH.'})}
+                        placeholder={'codex'}
+                    />
+                    <SelectionItem
+                        label={intl.formatMessage({defaultMessage: 'Codex runtime transport'})}
+                        value={value.codexRuntime?.transport || ''}
+                        onChange={(e) => updateConfig({codexRuntime: {...value.codexRuntime, transport: e.target.value as 'exec' | 'app-server' | ''}})}
+                        helptext={intl.formatMessage({defaultMessage: 'Use app-server for approval/resume support. Empty keeps the server environment default.'})}
+                    >
+                        <SelectionItemOption value=''>{intl.formatMessage({defaultMessage: 'Server default'})}</SelectionItemOption>
+                        <SelectionItemOption value='app-server'>{intl.formatMessage({defaultMessage: 'App Server'})}</SelectionItemOption>
+                        <SelectionItemOption value='exec'>{intl.formatMessage({defaultMessage: 'Exec JSON'})}</SelectionItemOption>
+                    </SelectionItem>
+                    <TextItem
+                        label={intl.formatMessage({defaultMessage: 'Codex runtime extra args'})}
+                        value={value.codexRuntime?.extraArgs || ''}
+                        onChange={(e) => updateConfig({codexRuntime: {...value.codexRuntime, extraArgs: e.target.value}})}
+                        helptext={intl.formatMessage({defaultMessage: 'Optional whitespace-separated arguments passed to the Codex runtime transport.'})}
+                        placeholder={'--skip-git-repo-check'}
+                    />
+                    <TextItem
+                        label={intl.formatMessage({defaultMessage: 'Codex runtime home'})}
+                        value={value.codexRuntime?.home || ''}
+                        onChange={(e) => updateConfig({codexRuntime: {...value.codexRuntime, home: e.target.value}})}
+                        helptext={intl.formatMessage({defaultMessage: 'Optional CODEX_HOME for the Codex child process. Store auth state in a mounted server path.'})}
+                        placeholder={'/mattermost/data/codex-home'}
+                    />
+                    <TextItem
+                        label={intl.formatMessage({defaultMessage: 'Runtime cost rates JSON'})}
+                        value={runtimeCostRatesText}
+                        multiline={true}
+                        onChange={(e) => updateRuntimeCostRates(e.target.value)}
+                        error={runtimeCostRatesError || ''}
+                        helptext={intl.formatMessage({defaultMessage: 'JSON array of per-provider model rates in dollars per 1M tokens. Fields: runtimeType, providerID, model, inputPerMillion, cachedReadPerMillion, cachedWritePerMillion, outputPerMillion.'})}
+                        placeholder={'[]'}
+                    />
                 </ItemList>
             </Panel>
+            <RuntimeHealthPanel/>
+            <HermesOffChecklistPanel/>
+            <RuntimeSessionsPanel/>
+            <RuntimeApprovalsPanel/>
+            <RuntimePoliciesPanel/>
+            <WorkspacePoliciesPanel/>
+            <RuntimeTasksPanel/>
             <Panel
                 title={intl.formatMessage({defaultMessage: 'Debug'})}
                 subtitle=''

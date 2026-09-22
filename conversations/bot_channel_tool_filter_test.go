@@ -68,6 +68,10 @@ func (c *channelFollowUpTestConfig) AllowNativeWebSearchInChannels() bool {
 	return false
 }
 
+func (c *channelFollowUpTestConfig) EnableAgentRuntimeControlPlane() bool {
+	return false
+}
+
 func (c *channelFollowUpTestConfig) MCP() mcp.Config {
 	return mcp.Config{}
 }

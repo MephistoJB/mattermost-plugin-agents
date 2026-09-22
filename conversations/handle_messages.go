@@ -7,6 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/mattermost/mattermost-plugin-agents/v2/bots"
 	"github.com/mattermost/mattermost-plugin-agents/v2/conversation"
@@ -211,12 +214,37 @@ func (c *Conversations) handleMessages(ctx context.Context, post *model.Post) er
 
 	// Check we are mentioned like @ai
 	if bot := c.bots.GetBotMentioned(post.Message); bot != nil {
+		if !isAutomatedInvoker(post, postingUser) && c.channelBotIsMember(channel, bot) {
+			return c.enqueueChannelMessage(ctx, bot, post, postingUser, channel)
+		}
 		return c.handleMentions(ctx, bot, post, postingUser, channel)
 	}
 
 	// Check if this is post in the DM channel with any bot
 	if bot := c.bots.GetBotForDMChannel(channel); bot != nil {
 		return c.handleDMs(ctx, bot, channel, postingUser, post)
+	}
+	// Membership activates replies to human messages only. Explicit activate_ai
+	// mentions from integrations continue through the mention path above.
+	if isAutomatedInvoker(post, postingUser) {
+		return nil
+	}
+	if channel.Type == model.ChannelTypeOpen || channel.Type == model.ChannelTypePrivate {
+		handled := false
+		for _, bot := range c.bots.GetAllBots() {
+			if c.channelBotIsMember(channel, bot) {
+				if err := c.enqueueChannelMessage(ctx, bot, post, postingUser, channel); err != nil {
+					if errors.Is(err, bots.ErrUsageRestriction) {
+						continue
+					}
+					return err
+				}
+				handled = true
+			}
+		}
+		if handled {
+			return nil
+		}
 	}
 
 	// Reply in a thread that did not @mention an agent: when the previous post
@@ -295,6 +323,15 @@ func (c *Conversations) handleMentionViaConversation(
 		c.applyBotChannelAutoEverywhereToolFilter(llmContext)
 	}
 
+	voicePrompt, voiceErr := c.promptWithVoiceTranscripts(ctx, bot, postingUser, channel, post)
+	if voiceErr != nil {
+		return fmt.Errorf("failed to prepare voice message: %w", voiceErr)
+	}
+	if ttsErr := c.validateResponseTextToSpeech(voicePrompt.RequiresLocal); ttsErr != nil {
+		return fmt.Errorf("failed to prepare voice response: %w", ttsErr)
+	}
+	userPrompt := voicePrompt.Prompt
+
 	systemPrompt, fmtErr := c.prompts.Format(prompts.PromptDirectMessageQuestionSystem, llmContext)
 	if fmtErr != nil {
 		return fmt.Errorf("failed to format system prompt: %w", fmtErr)
@@ -308,7 +345,7 @@ func (c *Conversations) handleMentionViaConversation(
 		RootPostID:   responseRootID,
 		Operation:    "conversation",
 		SystemPrompt: systemPrompt,
-		UserMessage:  post.Message,
+		UserMessage:  userPrompt,
 		UserPostID:   &userPostID,
 		FileIDs:      post.FileIds,
 	})
@@ -339,6 +376,19 @@ func (c *Conversations) handleMentionViaConversation(
 	responsePost.AddProp(streaming.ConversationIDProp, convResult.Conversation.ID)
 	if placeholderErr := c.createResponsePlaceholder(bot.GetMMBot().UserId, postingUser.Id, responsePost, post.Id); placeholderErr != nil {
 		return fmt.Errorf("unable to create response placeholder: %w", placeholderErr)
+	}
+
+	if c.runtimeControlEnabled() {
+		stream, runtimeErr := c.startRuntimeTurn(ctx, bot, post, postingUser, channel, convResult.Conversation.ID, userPrompt, llmContext, voicePrompt.HasVoice)
+		if runtimeErr != nil {
+			c.failRuntimeStartPlaceholder(responsePost, postingUser.Locale, runtimeErr)
+			return fmt.Errorf("unable to start runtime turn: %w", runtimeErr)
+		}
+		if streamErr := c.streamResponseToExistingPost(ctx, stream, responsePost, postingUser, channel, responseTTSOptions{Enabled: voicePrompt.HasVoice}); streamErr != nil {
+			c.failResponsePlaceholder(responsePost, postingUser.Locale)
+			return fmt.Errorf("unable to stream runtime response: %w", streamErr)
+		}
+		return nil
 	}
 
 	threadData, threadErr := mmapi.GetThreadData(c.mmClient, responseRootID)
@@ -393,7 +443,7 @@ func (c *Conversations) handleMentionViaConversation(
 	stream := decorateStreamWithWebSearchAnnotations(result.Stream, llmContext)
 	stream = c.decorateStreamWithCreatedFiles(stream, responsePost, nil, llmContext)
 
-	if streamErr := c.streamResponseToExistingPost(ctx, stream, responsePost, postingUser, channel); streamErr != nil {
+	if streamErr := c.streamResponseToExistingPost(ctx, stream, responsePost, postingUser, channel, responseTTSOptions{Enabled: voicePrompt.HasVoice}); streamErr != nil {
 		c.failResponsePlaceholder(responsePost, postingUser.Locale)
 		return fmt.Errorf("unable to stream response: %w", streamErr)
 	}
@@ -403,7 +453,7 @@ func (c *Conversations) handleMentionViaConversation(
 			if genErr := c.convService.GenerateTitle(
 				convResult.Conversation.ID,
 				bot.LLM(),
-				post.Message,
+				userPrompt,
 				llmContext,
 			); genErr != nil {
 				c.mmClient.LogError("Failed to generate title", "error", genErr.Error())
@@ -439,6 +489,14 @@ func (c *Conversations) handleDMViaConversation(ctx context.Context, bot *bots.B
 		extraOpts...,
 	)
 	ensureDMWebSearchTracking(llmContext)
+	voicePrompt, voiceErr := c.promptWithVoiceTranscripts(ctx, bot, postingUser, channel, post)
+	if voiceErr != nil {
+		return fmt.Errorf("failed to prepare voice message: %w", voiceErr)
+	}
+	if ttsErr := c.validateResponseTextToSpeech(voicePrompt.RequiresLocal); ttsErr != nil {
+		return fmt.Errorf("failed to prepare voice response: %w", ttsErr)
+	}
+	userPrompt := voicePrompt.Prompt
 
 	responseRootID := post.Id
 	if post.RootId != "" {
@@ -446,7 +504,7 @@ func (c *Conversations) handleDMViaConversation(ctx context.Context, bot *bots.B
 	}
 
 	// Create/get conversation before the placeholder so conversation_id is set on the initial post.
-	convResult, err := c.CreateOrGetDMConversation(bot.GetMMBot().UserId, postingUser, channel, post, llmContext)
+	convResult, err := c.CreateOrGetDMConversation(bot.GetMMBot().UserId, postingUser, channel, post, llmContext, userPrompt)
 	if err != nil {
 		return fmt.Errorf("unable to create DM conversation: %w", err)
 	}
@@ -472,6 +530,19 @@ func (c *Conversations) handleDMViaConversation(ctx context.Context, bot *bots.B
 		return fmt.Errorf("unable to create response placeholder: %w", placeholderErr)
 	}
 
+	if c.runtimeControlEnabled() {
+		stream, runtimeErr := c.startRuntimeTurn(ctx, bot, post, postingUser, channel, convResult.ConversationID, userPrompt, llmContext, voicePrompt.HasVoice)
+		if runtimeErr != nil {
+			c.failRuntimeStartPlaceholder(responsePost, postingUser.Locale, runtimeErr)
+			return fmt.Errorf("unable to start runtime turn: %w", runtimeErr)
+		}
+		if streamErr := c.streamResponseToExistingPost(ctx, stream, responsePost, postingUser, channel, responseTTSOptions{Enabled: voicePrompt.HasVoice}); streamErr != nil {
+			c.failResponsePlaceholder(responsePost, postingUser.Locale)
+			return fmt.Errorf("unable to stream runtime response: %w", streamErr)
+		}
+		return nil
+	}
+
 	dmStream, err := c.ProcessDMRequest(ctx, convResult.ConversationID, bot.LLM(), llmContext, bot.GetConfig().EffectiveMaxToolTurns())
 	if err != nil {
 		c.failResponsePlaceholder(responsePost, postingUser.Locale)
@@ -480,14 +551,14 @@ func (c *Conversations) handleDMViaConversation(ctx context.Context, bot *bots.B
 
 	stream := c.decorateStreamWithCreatedFiles(dmStream.Stream, responsePost, nil, llmContext)
 
-	if streamErr := c.streamResponseToExistingPost(ctx, stream, responsePost, postingUser, channel); streamErr != nil {
+	if streamErr := c.streamResponseToExistingPost(ctx, stream, responsePost, postingUser, channel, responseTTSOptions{Enabled: voicePrompt.HasVoice}); streamErr != nil {
 		c.failResponsePlaceholder(responsePost, postingUser.Locale)
 		return fmt.Errorf("unable to stream response: %w", streamErr)
 	}
 
 	if convResult.IsNew {
 		go func() {
-			if titleErr := c.convService.GenerateTitle(convResult.ConversationID, bot.LLM(), post.Message, llmContext); titleErr != nil {
+			if titleErr := c.convService.GenerateTitle(convResult.ConversationID, bot.LLM(), userPrompt, llmContext); titleErr != nil {
 				c.mmClient.LogError("Failed to generate title", "error", titleErr.Error())
 			}
 		}()
@@ -516,19 +587,68 @@ func (c *Conversations) createResponsePlaceholder(botID, requesterUserID string,
 	return c.mmClient.CreatePost(post)
 }
 
-func (c *Conversations) streamResponseToExistingPost(ctx context.Context, stream *llm.TextStreamResult, post *model.Post, postingUser *model.User, channel *model.Channel) error {
+type responseTTSOptions struct {
+	Enabled bool
+}
+
+func (c *Conversations) streamResponseToExistingPost(ctx context.Context, stream *llm.TextStreamResult, post *model.Post, postingUser *model.User, channel *model.Channel, ttsOptions ...responseTTSOptions) error {
 	streamCtx, err := c.streamingService.GetStreamingContext(ctx, post.Id)
 	if err != nil {
 		return err
+	}
+
+	enableTTS := false
+	if len(ttsOptions) > 0 {
+		enableTTS = ttsOptions[0].Enabled
+	}
+	collectedText := func() string { return "" }
+	if enableTTS && c.textToSpeech != nil && c.textToSpeech.Enabled() {
+		stream, collectedText = collectTextForSpeech(stream)
 	}
 
 	locale := c.responseLocale(postingUser, channel)
 	go func() {
 		defer c.streamingService.FinishStreaming(post.Id)
 		c.streamingService.StreamToPost(streamCtx, stream, post, locale, postingUser.Id)
+		if enableTTS && c.textToSpeech != nil && c.textToSpeech.Enabled() {
+			audioCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := c.textToSpeech.AttachResponseAudio(audioCtx, post.Id, post.ChannelId, collectedText()); err != nil {
+				c.mmClient.LogError("Failed to attach text-to-speech response", "post_id", post.Id, "error", err)
+			}
+		}
 	}()
 
 	return nil
+}
+
+func collectTextForSpeech(stream *llm.TextStreamResult) (*llm.TextStreamResult, func() string) {
+	if stream == nil {
+		return stream, func() string { return "" }
+	}
+	output := make(chan llm.TextStreamEvent)
+	var builder strings.Builder
+	var mu sync.Mutex
+
+	go func() {
+		defer close(output)
+		for event := range stream.Stream {
+			if event.Type == llm.EventTypeText {
+				if text, ok := event.Value.(string); ok {
+					mu.Lock()
+					builder.WriteString(text)
+					mu.Unlock()
+				}
+			}
+			output <- event
+		}
+	}()
+
+	return &llm.TextStreamResult{Stream: output}, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return builder.String()
+	}
 }
 
 // streamContinuationToExistingPost streams a tool-approval follow-up.
@@ -558,6 +678,25 @@ func (c *Conversations) failResponsePlaceholder(post *model.Post, userLocale str
 	if err := c.mmClient.UpdatePost(post); err != nil {
 		c.mmClient.LogError("Failed to update response placeholder after startup error", "error", err)
 	}
+}
+
+func (c *Conversations) failRuntimeStartPlaceholder(post *model.Post, userLocale string, err error) {
+	if message := runtimeStartErrorMessage(err); message != "" {
+		c.updateResponsePlaceholderMessage(post, message)
+		return
+	}
+	c.failResponsePlaceholder(post, userLocale)
+}
+
+func (c *Conversations) updateResponsePlaceholderMessage(post *model.Post, message string) {
+	post.Message = message
+	if err := c.mmClient.UpdatePost(post); err != nil {
+		c.mmClient.LogError("Failed to update response placeholder after runtime start error", "error", err)
+	}
+}
+
+func runtimeStartErrorMessage(err error) string {
+	return runtimeUserErrorMessage(err)
 }
 
 func (c *Conversations) responseLocale(postingUser *model.User, channel *model.Channel) string {

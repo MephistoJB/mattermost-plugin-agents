@@ -557,6 +557,12 @@ When users report repeated tool failures, use **LLM Trace** and debug logging to
 
 Integrations are available in direct messages by default. If you enable the experimental **Enable Channel Mention Tool Calling** setting, @mentioning an agent in a public channel can also allow tool calling there. Native provider web search in public and private channels is controlled separately by **Allow native web search in channels**.
 
+### Channel conversations with runtime agents
+
+When the agent runtime control plane is enabled, add an agent as a member of a public or private channel to have it answer every human message there. Remove the agent from the channel to stop automatic replies. Each agent writes top-level posts in the channel, so its answers are visible in the main timeline on mobile. An explicit @mention of a member agent uses this channel mode; mentions of agents that are not members keep the usual threaded behavior. If several agents are members, each answers an unaddressed message.
+
+Each channel and agent pair has its own persistent runtime session. On the first turn, the plugin supplies up to 30 preceding channel posts, capped at 12,000 characters. Later turns reuse the same Codex thread, including messages from different channel members. Codex may compact a long thread automatically. Agent and user access restrictions still apply; this mode requires the runtime control plane.
+
 ### File creation by agents
 
 The built-in `CreateFile` tool lets an agent create a text file that is attached to its own reply. It executes automatically without an approval prompt — like the dynamic tool loading meta-tools — because its only effect is attaching a file to the agent's own response; users see a resolved (auto-approved) tool card. The embedded and external MCP posting tools (`create_post`, `dm`, `group_message`) also accept an inline `files` parameter and create the attachments as the acting user, subject to those tools' configured approval policies. In channels, availability of all of these follows the existing **Enable Channel Mention Tool Calling** setting.

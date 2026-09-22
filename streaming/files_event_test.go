@@ -37,6 +37,8 @@ func TestStreamToPostFilesEvent(t *testing.T) {
 		initialFileIDs []string
 		events         []llm.TextStreamEvent
 		wantFileIDs    []string
+		wantLinkedIDs  []string
+		wantNoLinks    []string
 		wantFallback   bool
 		wantCapWarning bool
 	}{
@@ -47,7 +49,8 @@ func TestStreamToPostFilesEvent(t *testing.T) {
 				{Type: llm.EventTypeFiles, Value: []string{"file-1", "file-2"}},
 				{Type: llm.EventTypeEnd},
 			},
-			wantFileIDs: []string{"file-1", "file-2"},
+			wantFileIDs:   []string{"file-1", "file-2"},
+			wantLinkedIDs: []string{"file-1", "file-2"},
 		},
 		{
 			name:           "duplicate IDs are not doubled",
@@ -57,7 +60,9 @@ func TestStreamToPostFilesEvent(t *testing.T) {
 				{Type: llm.EventTypeFiles, Value: []string{"file-1", "file-2"}},
 				{Type: llm.EventTypeEnd},
 			},
-			wantFileIDs: []string{"file-1", "file-2"},
+			wantFileIDs:   []string{"file-1", "file-2"},
+			wantLinkedIDs: []string{"file-2"},
+			wantNoLinks:   []string{"file-1"},
 		},
 		{
 			name: "files-only stream is a valid response and skips the empty fallback",
@@ -65,7 +70,8 @@ func TestStreamToPostFilesEvent(t *testing.T) {
 				{Type: llm.EventTypeFiles, Value: []string{"file-1"}},
 				{Type: llm.EventTypeEnd},
 			},
-			wantFileIDs: []string{"file-1"},
+			wantFileIDs:   []string{"file-1"},
+			wantLinkedIDs: []string{"file-1"},
 		},
 		{
 			name: "stream with neither text nor files still produces the empty fallback",
@@ -81,6 +87,8 @@ func TestStreamToPostFilesEvent(t *testing.T) {
 				{Type: llm.EventTypeEnd},
 			},
 			wantFileIDs:    twelveIDs[:maxPostAttachments],
+			wantLinkedIDs:  twelveIDs[:maxPostAttachments],
+			wantNoLinks:    twelveIDs[maxPostAttachments:],
 			wantCapWarning: true,
 		},
 	}
@@ -117,6 +125,15 @@ func TestStreamToPostFilesEvent(t *testing.T) {
 				require.Contains(t, finalUpdate.Message, "did not return a result")
 			} else {
 				require.NotContains(t, finalUpdate.Message, "did not return a result")
+			}
+			if len(tt.wantLinkedIDs) > 0 {
+				require.Contains(t, finalUpdate.Message, "Generated files:")
+			}
+			for _, id := range tt.wantLinkedIDs {
+				require.Contains(t, finalUpdate.Message, fmt.Sprintf("](/files/%s)", id))
+			}
+			for _, id := range tt.wantNoLinks {
+				require.NotContains(t, finalUpdate.Message, fmt.Sprintf("](/files/%s)", id))
 			}
 
 			if tt.wantCapWarning {

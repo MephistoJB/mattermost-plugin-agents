@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mattermost/mattermost-plugin-agents/v2/agentruntime"
 	"github.com/mattermost/mattermost-plugin-agents/v2/api"
 	"github.com/mattermost/mattermost-plugin-agents/v2/bots"
 	"github.com/mattermost/mattermost-plugin-agents/v2/config"
@@ -32,10 +33,14 @@ import (
 	"github.com/mattermost/mattermost-plugin-agents/v2/mmapi"
 	"github.com/mattermost/mattermost-plugin-agents/v2/mmtools"
 	"github.com/mattermost/mattermost-plugin-agents/v2/prompts"
+	"github.com/mattermost/mattermost-plugin-agents/v2/runtimecontrol"
 	"github.com/mattermost/mattermost-plugin-agents/v2/search"
+	"github.com/mattermost/mattermost-plugin-agents/v2/slashcommands"
 	"github.com/mattermost/mattermost-plugin-agents/v2/store"
 	"github.com/mattermost/mattermost-plugin-agents/v2/streaming"
+	"github.com/mattermost/mattermost-plugin-agents/v2/taskscheduler"
 	"github.com/mattermost/mattermost-plugin-agents/v2/telemetry"
+	"github.com/mattermost/mattermost-plugin-agents/v2/workspacefiles"
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/plugin"
 	"github.com/mattermost/mattermost/server/public/pluginapi"
@@ -59,6 +64,10 @@ type Plugin struct {
 	conversationsService *conversations.Conversations
 	mcpClientManager     *mcp.ClientManager
 	streamingService     streaming.Service
+	runtimeControl       *runtimecontrol.Service
+	commandHandler       *slashcommands.Handler
+	taskScheduler        *taskscheduler.Service
+	taskSchedulerCancel  context.CancelFunc
 	telemetryShutdown    telemetry.ShutdownFunc
 	telemetryMu          sync.Mutex
 	telemetryMode        telemetry.OutputMode
@@ -198,6 +207,34 @@ func (p *Plugin) OnActivate() error {
 		p.configuration.Update(dbConfig)
 	}
 	p.configMigrated = true
+	runtimes, runtimeErrs := configuredRuntimeMap(p.configuration.Config())
+	for _, runtimeErr := range runtimeErrs {
+		pluginAPI.Log.Warn("Failed to configure local runtime service", "error", runtimeErr)
+	}
+	p.runtimeControl = runtimecontrol.NewService(runtimecontrol.NewServiceOptions{
+		Config: &p.configuration,
+		Store:  p.store,
+		FallbackPolicy: agentruntime.RuntimePolicy{
+			RuntimeType: agentruntime.RuntimeTypeCodex,
+			ProviderID:  "codex",
+			AllowCloud:  true,
+			AllowLocal:  true,
+		},
+		Runtimes:    runtimes,
+		Attachments: workspacefiles.New(workspacefiles.Options{Client: mmClient}),
+		CostRates:   p.configuration.RuntimeCostRates(),
+	})
+	p.configuration.RegisterUpdateListener(p.refreshConfiguredRuntimes)
+	p.commandHandler = slashcommands.New(slashcommands.Options{
+		Config:         &p.configuration,
+		Store:          p.store,
+		RuntimeControl: p.runtimeControl,
+		Permissions:    runtimeCommandPermissions{client: mmClient},
+		Audit:          runtimeCommandAudit{pluginAPI: pluginAPI},
+	})
+	if err := p.registerSlashCommands(); err != nil {
+		return err
+	}
 
 	bots := bots.New(p.API, pluginAPI, licenseChecker, &p.configuration, p.store, llmUpstreamHTTPClient, metricsService)
 
@@ -410,6 +447,13 @@ func (p *Plugin) OnActivate() error {
 
 	convService := conversation.NewService(p.store, prompts, mmClient, bots)
 	conversationsService.SetConversationService(convService)
+	conversationsService.SetRuntimeControl(p.runtimeControl)
+	conversationsService.SetServerID(manifest.Id)
+	if ttsService, ttsErr := textToSpeechFromConfigOrEnv(mmClient, p.configuration.Config()); ttsErr != nil {
+		pluginAPI.Log.Error("Failed to configure text-to-speech", "error", ttsErr)
+	} else if ttsService != nil {
+		conversationsService.SetTextToSpeech(ttsService)
+	}
 	searchService.SetConversationService(convService)
 
 	meetingsService := meetings.NewService(
@@ -481,14 +525,17 @@ func (p *Plugin) OnActivate() error {
 	)
 
 	apiService.SetConversationService(convService)
+	apiService.SetRuntimeApprovalControl(p.runtimeControl)
+	p.apiService = apiService
 
 	// Apply OpenTelemetry config now and re-apply on every config change so
 	// admins don't need to restart the plugin to switch modes.
 	p.applyTelemetryConfig()
 	p.configuration.RegisterUpdateListener(p.applyTelemetryConfig)
+	p.configuration.RegisterUpdateListener(p.reconcileTaskScheduler)
+	p.reconcileTaskScheduler()
 
 	// Keep only what we need
-	p.apiService = apiService
 	p.bots = bots
 	p.indexerService = indexerService
 	p.conversationsService = conversationsService
@@ -496,6 +543,21 @@ func (p *Plugin) OnActivate() error {
 	p.streamingService = streamingService
 
 	return nil
+}
+
+func (p *Plugin) ExecuteCommand(_ *plugin.Context, args *model.CommandArgs) (*model.CommandResponse, *model.AppError) {
+	if p.commandHandler == nil {
+		return &model.CommandResponse{
+			ResponseType: model.CommandResponseTypeEphemeral,
+			Text:         "Agent commands are not initialized.",
+		}, nil
+	}
+
+	response, err := p.commandHandler.Execute(args)
+	if err != nil {
+		return nil, model.NewAppError("Plugin.ExecuteCommand", "plugin.command.execute.app_error", nil, err.Error(), http.StatusInternalServerError)
+	}
+	return response, nil
 }
 
 func (p *Plugin) OnDeactivate() error {
@@ -510,7 +572,9 @@ func (p *Plugin) OnDeactivate() error {
 	p.telemetryMu.Unlock()
 
 	// Clean up MCP client manager if it exists
+	p.stopTaskScheduler()
 	p.mcpClientManager.Close()
+	p.unregisterSlashCommands()
 
 	return nil
 }

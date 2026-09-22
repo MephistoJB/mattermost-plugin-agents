@@ -6,6 +6,8 @@ package config
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/mattermost/mattermost-plugin-agents/v2/agentruntime"
 )
 
 func TestEnableTokenUsageSinks(t *testing.T) {
@@ -200,6 +202,54 @@ func TestTokenUsageSinkConfigUnmarshalCompatibility(t *testing.T) {
 				t.Fatalf("EnableTokenUsageLogToFile() = %t, want %t", got, tt.wantFileEnabledBy)
 			}
 		})
+	}
+}
+
+func TestEnableAgentRuntimeControlPlane(t *testing.T) {
+	container := &Container{}
+
+	container.Update(nil)
+	if got := container.EnableAgentRuntimeControlPlane(); got {
+		t.Fatalf("EnableAgentRuntimeControlPlane() = %t, want false for nil config", got)
+	}
+
+	container.Update(&Config{})
+	if got := container.EnableAgentRuntimeControlPlane(); got {
+		t.Fatalf("EnableAgentRuntimeControlPlane() = %t, want false by default", got)
+	}
+
+	container.Update(&Config{EnableAgentRuntimeControlPlane: true})
+	if got := container.EnableAgentRuntimeControlPlane(); !got {
+		t.Fatalf("EnableAgentRuntimeControlPlane() = %t, want true", got)
+	}
+}
+
+func TestRuntimeCostRates(t *testing.T) {
+	container := &Container{}
+
+	container.Update(nil)
+	if got := container.RuntimeCostRates(); got != nil {
+		t.Fatalf("RuntimeCostRates() = %#v, want nil for nil config", got)
+	}
+
+	container.Update(&Config{RuntimeCostRates: []agentruntime.RuntimeCostRate{{
+		RuntimeType:      agentruntime.RuntimeTypeOpenAI,
+		ProviderID:       "custom",
+		Model:            "model",
+		InputPerMillion:  1,
+		OutputPerMillion: 2,
+	}}})
+
+	got := container.RuntimeCostRates()
+	if len(got) != 1 {
+		t.Fatalf("RuntimeCostRates() length = %d, want 1", len(got))
+	}
+	if got[0].ProviderID != "custom" || got[0].Model != "model" {
+		t.Fatalf("RuntimeCostRates() = %#v", got)
+	}
+	got[0].ProviderID = "mutated"
+	if container.RuntimeCostRates()[0].ProviderID != "custom" {
+		t.Fatalf("RuntimeCostRates() did not return a copy")
 	}
 }
 

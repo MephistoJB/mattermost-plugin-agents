@@ -7,9 +7,12 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -20,6 +23,7 @@ import (
 	"github.com/mattermost/mattermost-plugin-agents/v2/llm"
 	"github.com/mattermost/mattermost-plugin-agents/v2/loadtest"
 	"github.com/mattermost/mattermost-plugin-agents/v2/mmapi"
+	"github.com/mattermost/mattermost-plugin-agents/v2/openaicodex"
 	"github.com/mattermost/mattermost-plugin-agents/v2/subtitles"
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/pluginapi"
@@ -486,6 +490,18 @@ func (b *MMBots) getBaseLLM(serviceConfig llm.ServiceConfig, botConfig llm.BotCo
 		}
 		return loadtest.NewMockLLM(profile), nil
 	}
+	if serviceConfig.Type == llm.ServiceTypeOpenAICodex {
+		var store mmapi.Client
+		if b.pluginAPI != nil {
+			store = mmapi.NewClient(b.pluginAPI)
+		}
+		return openaicodex.New(openaicodex.Config{
+			Service:    serviceConfig,
+			Bot:        botConfig,
+			Store:      store,
+			HTTPClient: b.llmUpstreamHTTPClient,
+		}), nil
+	}
 
 	bifrostLLM, err := bifrost.NewFromServiceConfig(serviceConfig, botConfig, fallbackServices)
 	if err != nil {
@@ -499,6 +515,43 @@ func (b *MMBots) getBaseLLM(serviceConfig llm.ServiceConfig, botConfig llm.BotCo
 
 // TODO: This really doesn't belong here. Figure out where to put this.
 func (b *MMBots) GetTranscribe() Transcriber {
+	return b.getTranscribe(false)
+}
+
+func (b *MMBots) GetLocalTranscribe() Transcriber {
+	return b.getTranscribe(true)
+}
+
+func (b *MMBots) HasTranscribe() bool {
+	return b.transcriptionServiceConfigured(false)
+}
+
+func (b *MMBots) HasLocalTranscribe() bool {
+	return b.transcriptionServiceConfigured(true)
+}
+
+func (b *MMBots) transcriptionServiceConfigured(requireLocal bool) bool {
+	if b == nil {
+		return false
+	}
+	bot := b.getTrasncriberBot()
+	if bot == nil {
+		return false
+	}
+
+	service := bot.service
+	if requireLocal {
+		return isLocalTranscriptionService(service)
+	}
+	switch service.Type {
+	case llm.ServiceTypeOpenAI, llm.ServiceTypeOpenAICompatible, llm.ServiceTypeAzure:
+		return true
+	default:
+		return false
+	}
+}
+
+func (b *MMBots) getTranscribe(requireLocal bool) Transcriber {
 	// Get the configured transcript generator bot
 	bot := b.getTrasncriberBot()
 	if bot == nil {
@@ -507,6 +560,12 @@ func (b *MMBots) GetTranscribe() Transcriber {
 	}
 
 	service := bot.service
+	if requireLocal && !isLocalTranscriptionService(service) {
+		b.pluginAPI.Log.Error("Transcript generator is not local",
+			"bot_name", bot.GetMMBot().Username,
+			"service_type", service.Type)
+		return nil
+	}
 
 	// Map service type to Bifrost provider
 	var provider schemas.ModelProvider
@@ -540,6 +599,31 @@ func (b *MMBots) GetTranscribe() Transcriber {
 	}
 
 	return transcriber
+}
+
+func isLocalTranscriptionService(service llm.ServiceConfig) bool {
+	if service.Type != llm.ServiceTypeOpenAICompatible {
+		return false
+	}
+	if strings.TrimSpace(service.APIURL) == "" {
+		return false
+	}
+	parsed, err := url.Parse(service.APIURL)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") || strings.EqualFold(host, "host.docker.internal") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return strings.HasSuffix(strings.ToLower(host), ".local")
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 func (b *MMBots) getTrasncriberBot() *Bot {

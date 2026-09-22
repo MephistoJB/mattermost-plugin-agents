@@ -602,6 +602,14 @@ func TestIsValidService(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "Valid OpenAI Codex login service without API key",
+			service: ServiceConfig{
+				ID:   "codex-login",
+				Type: ServiceTypeOpenAICodex,
+			},
+			want: true,
+		},
+		{
 			name: "Valid loadtest mock service minimal",
 			service: ServiceConfig{
 				ID:   "loadtest",

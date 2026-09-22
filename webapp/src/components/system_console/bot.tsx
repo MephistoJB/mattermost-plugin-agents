@@ -55,6 +55,7 @@ export type LLMBotConfig = {
     reasoningEffort?: string
     thinkingBudget?: number
     structuredOutputEnabled?: boolean
+    supervisorMode?: boolean
 }
 
 // Component for configuring native tools (OpenAI / Anthropic / Google).
@@ -400,6 +401,12 @@ const Bot = (props: Props) => {
                                         value={!props.bot.disableTools}
                                         onChange={(to: boolean) => props.onChange({...props.bot, disableTools: !to})}
                                         helpText={intl.formatMessage({defaultMessage: 'By default some tool use is enabled to allow for features such as integrations with JIRA. Disabling this allows use of models that do not support or are not very good at tool use. Some features will not work without tools.'})}
+                                    />
+                                    <BooleanItem
+                                        label={intl.formatMessage({defaultMessage: 'Supervisor Mode'})}
+                                        value={props.bot.supervisorMode ?? false}
+                                        onChange={(to: boolean) => props.onChange({...props.bot, supervisorMode: to})}
+                                        helpText={intl.formatMessage({defaultMessage: 'Run this agent as a supervisor that delegates work to internal subagents and returns a consolidated result.'})}
                                     />
                                     {(() => {
                                         // Direct OpenAI always uses the Responses API. OpenAI-compatible

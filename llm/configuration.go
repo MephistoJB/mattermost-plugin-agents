@@ -181,6 +181,10 @@ type BotConfig struct {
 	// long dynamic-tool-discovery chains (e.g. search → load → execute).
 	MaxToolTurns int `json:"maxToolTurns"`
 
+	// SupervisorMode lets the runtime control plane run this agent as the
+	// visible supervisor that delegates work to internal subagents.
+	SupervisorMode bool `json:"supervisorMode"`
+
 	// Admin / lifecycle metadata.
 	BotUserID    string   `json:"botUserID,omitempty"`
 	CreatorID    string   `json:"creatorID,omitempty"`
@@ -296,6 +300,8 @@ func IsValidService(service ServiceConfig) bool {
 	switch service.Type {
 	case ServiceTypeOpenAI:
 		return service.APIKey != ""
+	case ServiceTypeOpenAICodex:
+		return true
 	case ServiceTypeOpenAICompatible:
 		return service.APIURL != ""
 	case ServiceTypeAzure:

@@ -5,6 +5,7 @@ package llm
 
 const (
 	ServiceTypeOpenAI           = "openai"
+	ServiceTypeOpenAICodex      = "openai-codex"
 	ServiceTypeOpenAICompatible = "openaicompatible"
 	ServiceTypeAzure            = "azure"
 	ServiceTypeAnthropic        = "anthropic"

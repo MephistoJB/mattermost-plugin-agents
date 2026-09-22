@@ -33,6 +33,7 @@ const defaultNewBot: LLMBotConfig = {
     reasoningEffort: 'medium',
     thinkingBudget: 0,
     structuredOutputEnabled: false,
+    supervisorMode: false,
 };
 
 export const firstNewBot = {

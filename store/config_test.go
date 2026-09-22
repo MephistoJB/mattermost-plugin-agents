@@ -63,9 +63,10 @@ func fullTestConfig() config.Config {
 				ServiceID:   "svc-2",
 			},
 		},
-		DefaultBotName:          "ai",
-		TranscriptGenerator:     "openai",
-		EnableTokenUsageLogging: true,
+		DefaultBotName:                 "ai",
+		TranscriptGenerator:            "openai",
+		EnableTokenUsageLogging:        true,
+		EnableAgentRuntimeControlPlane: true,
 		EmbeddingSearchConfig: embeddings.EmbeddingSearchConfig{
 			Type: "openai",
 		},
@@ -145,6 +146,7 @@ func TestConfigStore(t *testing.T) {
 				assert.Equal(t, expected.DefaultBotName, cfg.DefaultBotName)
 				assert.Equal(t, expected.TranscriptGenerator, cfg.TranscriptGenerator)
 				assert.Equal(t, expected.EnableTokenUsageLogging, cfg.EnableTokenUsageLogging)
+				assert.Equal(t, expected.EnableAgentRuntimeControlPlane, cfg.EnableAgentRuntimeControlPlane)
 
 				// MCP
 				assert.Equal(t, expected.MCP.EmbeddedServer.Enabled, cfg.MCP.EmbeddedServer.Enabled)
