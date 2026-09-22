@@ -278,6 +278,10 @@ func (c *testToolCallingConfig) AllowNativeWebSearchInChannels() bool {
 	return false
 }
 
+func (c *testToolCallingConfig) EnableAgentRuntimeControlPlane() bool {
+	return false
+}
+
 func (c *testToolCallingConfig) MCP() mcp.Config {
 	return mcp.Config{}
 }

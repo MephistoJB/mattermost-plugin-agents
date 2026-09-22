@@ -10,11 +10,13 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
+	"github.com/mattermost/mattermost-plugin-agents/v2/agentruntime"
 	"github.com/mattermost/mattermost-plugin-agents/v2/bifrost"
 	"github.com/mattermost/mattermost-plugin-agents/v2/bots"
 	"github.com/mattermost/mattermost-plugin-agents/v2/config"
@@ -53,6 +55,7 @@ type Config interface {
 	AllowUnsafeLinks() bool
 	EmbeddingSearchConfig() embeddings.EmbeddingSearchConfig
 	EnableChannelMentionToolCalling() bool
+	EnableAgentRuntimeControlPlane() bool
 }
 
 type MCPClientManager interface {
@@ -114,6 +117,41 @@ type ConversationStore interface {
 	GetConversationSummariesForUser(userID string, limit, offset int) ([]store.ConversationSummary, error)
 }
 
+// RuntimeStore provides persistence for the runtime control plane.
+type RuntimeStore interface {
+	CreateRuntimeSession(session *agentruntime.RuntimeSession) error
+	GetRuntimeSession(id string) (*agentruntime.RuntimeSession, error)
+	GetRuntimeSessionByConversationAgent(conversationID, agentID string) (*agentruntime.RuntimeSession, error)
+	ListRuntimeSessions(filter agentruntime.RuntimeSessionFilter) ([]agentruntime.RuntimeSession, error)
+	UpdateRuntimeSessionStatus(id string, status agentruntime.RuntimeSessionStatus, lastError string) error
+	GetRuntimePolicy(scopeType agentruntime.PolicyScopeType, scopeID string) (*agentruntime.RuntimePolicy, error)
+	UpsertRuntimePolicy(policy *agentruntime.RuntimePolicy) error
+	ListRuntimePolicies() ([]agentruntime.RuntimePolicy, error)
+	CreateWorkspacePolicy(policy *agentruntime.WorkspacePolicy) error
+	GetWorkspacePolicy(id string) (*agentruntime.WorkspacePolicy, error)
+	UpdateWorkspacePolicy(policy *agentruntime.WorkspacePolicy) error
+	ListWorkspacePolicies() ([]agentruntime.WorkspacePolicy, error)
+	GetRuntimeApproval(id string) (*agentruntime.RuntimeApproval, error)
+	ListRuntimeApprovals(filter store.RuntimeApprovalFilter) ([]agentruntime.RuntimeApproval, error)
+	ListHermesOffChecklistStates() ([]agentruntime.HermesOffChecklistItemState, error)
+	UpsertHermesOffChecklistState(state *agentruntime.HermesOffChecklistItemState) error
+	GetTask(id string) (*agentruntime.Task, error)
+	ListTasks(filter store.TaskFilter) ([]agentruntime.Task, error)
+	ListTaskRuns(taskID string) ([]agentruntime.TaskRun, error)
+	UpdateTaskStatus(id string, status agentruntime.TaskStatus, lastRunAt, nextRunAt int64) error
+	DeleteTask(id string) error
+	ListSupervisorRuns(filter store.SupervisorRunFilter) ([]agentruntime.SupervisorRun, error)
+	ListSubagentRuns(supervisorRunID string) ([]agentruntime.SubagentRun, error)
+}
+
+type RuntimeApprovalControl interface {
+	SubmitApproval(ctx context.Context, decision agentruntime.RuntimeApprovalDecision) error
+	ExpireApprovals(ctx context.Context) error
+	StopSession(ctx context.Context, sessionID string) error
+	ResumeSession(ctx context.Context, sessionID string) (<-chan agentruntime.RuntimeEvent, error)
+	GetStatus(ctx context.Context, sessionID string) (agentruntime.RuntimeStatus, error)
+}
+
 // ClusterAgentNotifier broadcasts agent update events to other cluster nodes.
 type ClusterAgentNotifier interface {
 	PublishAgentUpdate() error
@@ -133,39 +171,43 @@ type StreamStopClusterNotifier interface {
 
 // API represents the HTTP API functionality for the plugin
 type API struct {
-	bots                  *bots.MMBots
-	conversationsService  *conversations.Conversations
-	meetingsService       *meetings.Service
-	indexerService        *indexer.Indexer
-	searchService         *search.Search
-	fileService           *files.Service
-	pluginAPI             *pluginapi.Client
-	metricsService        metrics.Metrics
-	metricsHandler        http.Handler
-	contextBuilder        *llmcontext.Builder
-	prompts               *llm.Prompts
-	config                Config
-	mmClient              mmapi.Client
-	dbClient              *mmapi.DBClient
-	licenseChecker        *enterprise.LicenseChecker
-	streamingService      streaming.Service
-	i18nBundle            *i18n.Bundle
-	mcpClientManager      MCPClientManager
-	mcpHandlers           *mcpserver.PluginMCPHandlers
-	beforeHookStore       *mcp.BeforeHookStore
-	llmUpstreamHTTPClient *http.Client
-	configStore           ConfigStore
-	agentStore            AgentStore
-	configUpdater         ConfigUpdater
-	clusterNotifier       ClusterNotifier
-	clusterAgentNotifier  ClusterAgentNotifier
-	mcpOAuthNotifier      MCPOAuthClusterNotifier
-	streamStopNotifier    StreamStopClusterNotifier
-	conversationStore     ConversationStore
-	convService           *conversation.Service
-	getSearchInitError    func() string
-	customPromptsStore    *customprompts.Store
-	mcpRequestLimiter     *mcpRequestLimiter
+	bots                   *bots.MMBots
+	conversationsService   *conversations.Conversations
+	meetingsService        *meetings.Service
+	indexerService         *indexer.Indexer
+	searchService          *search.Search
+	fileService            *files.Service
+	pluginAPI              *pluginapi.Client
+	metricsService         metrics.Metrics
+	metricsHandler         http.Handler
+	contextBuilder         *llmcontext.Builder
+	prompts                *llm.Prompts
+	config                 Config
+	mmClient               mmapi.Client
+	dbClient               *mmapi.DBClient
+	licenseChecker         *enterprise.LicenseChecker
+	streamingService       streaming.Service
+	i18nBundle             *i18n.Bundle
+	mcpClientManager       MCPClientManager
+	mcpHandlers            *mcpserver.PluginMCPHandlers
+	beforeHookStore        *mcp.BeforeHookStore
+	llmUpstreamHTTPClient  *http.Client
+	configStore            ConfigStore
+	agentStore             AgentStore
+	configUpdater          ConfigUpdater
+	clusterNotifier        ClusterNotifier
+	clusterAgentNotifier   ClusterAgentNotifier
+	mcpOAuthNotifier       MCPOAuthClusterNotifier
+	streamStopNotifier     StreamStopClusterNotifier
+	conversationStore      ConversationStore
+	runtimeStore           RuntimeStore
+	runtimeApprovalControl RuntimeApprovalControl
+	runtimeRecoveryMu      sync.RWMutex
+	runtimeRecoveryStatus  *RuntimeRecoveryStatus
+	convService            *conversation.Service
+	getSearchInitError     func() string
+	customPromptsStore     *customprompts.Store
+	mcpRequestLimiter      *mcpRequestLimiter
 
 	// auditEvents maps gin handler names to audit event names for routes
 	// that emit server audit records. Built once in New; read-only after.
@@ -246,6 +288,9 @@ func New(
 		getSearchInitError:    getSearchInitError,
 		customPromptsStore:    customPromptsStore,
 	}
+	if runtimeStore, ok := configStore.(RuntimeStore); ok {
+		a.runtimeStore = runtimeStore
+	}
 	a.auditEvents = buildAuditEventRegistry(a)
 	return a
 }
@@ -253,6 +298,16 @@ func New(
 // SetConversationService sets the conversation entity service for channel analysis.
 func (a *API) SetConversationService(svc *conversation.Service) {
 	a.convService = svc
+}
+
+func (a *API) SetRuntimeApprovalControl(control RuntimeApprovalControl) {
+	a.runtimeApprovalControl = control
+}
+
+func (a *API) SetRuntimeRecoveryStatus(status RuntimeRecoveryStatus) {
+	a.runtimeRecoveryMu.Lock()
+	defer a.runtimeRecoveryMu.Unlock()
+	a.runtimeRecoveryStatus = &status
 }
 
 // ServeHTTP handles HTTP requests to the plugin
@@ -307,6 +362,14 @@ func (a *API) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Reques
 
 	router.GET("/conversations/:conversationid", a.handleGetConversation)
 	router.GET("/conversations/:conversationid/context", a.handleGetConversationContext)
+	router.GET("/runtime/sessions", a.handleListRuntimeSessions)
+	router.POST("/runtime/sessions/:sessionID/action", a.handleRuntimeSessionAction)
+	router.GET("/runtime/approvals", a.handleListRuntimeApprovals)
+	router.POST("/runtime/approvals/:approvalID/decision", a.handleSubmitRuntimeApproval)
+	router.GET("/runtime/tasks", a.handleListRuntimeTasks)
+	router.GET("/runtime/supervisor-runs", a.handleListSupervisorRuns)
+	router.GET("/runtime/policies/:scopeType/:scopeID", a.handleGetScopedRuntimePolicy)
+	router.PUT("/runtime/policies/:scopeType/:scopeID", a.handleUpsertScopedRuntimePolicy)
 
 	router.GET("/oauth/callback", a.handleOAuthCallback)
 	router.GET("/ai_threads", a.handleGetAIThreads)
@@ -388,6 +451,21 @@ func (a *API) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Reques
 	adminRouter.POST("/models/fetch", a.handleFetchModels)
 	adminRouter.GET("/config", a.handleGetConfig)
 	adminRouter.PUT("/config", a.handleSaveConfig)
+	adminRouter.GET("/runtime/policies", a.handleListRuntimePolicies)
+	adminRouter.GET("/runtime/health", a.handleRuntimeHealth)
+	adminRouter.GET("/runtime/sessions", a.handleAdminListRuntimeSessions)
+	adminRouter.POST("/runtime/sessions/:sessionID/action", a.handleAdminRuntimeSessionAction)
+	adminRouter.GET("/runtime/approvals", a.handleAdminListRuntimeApprovals)
+	adminRouter.POST("/runtime/approvals/:approvalID/decision", a.handleAdminSubmitRuntimeApproval)
+	adminRouter.GET("/runtime/hermes-off-checklist", a.handleHermesOffChecklist)
+	adminRouter.PUT("/runtime/hermes-off-checklist/:itemKey", a.handleUpdateHermesOffChecklistItem)
+	adminRouter.GET("/runtime/tasks", a.handleAdminListRuntimeTasks)
+	adminRouter.GET("/runtime/tasks/:taskID/runs", a.handleAdminListRuntimeTaskRuns)
+	adminRouter.POST("/runtime/tasks/:taskID/action", a.handleAdminRuntimeTaskAction)
+	adminRouter.PUT("/runtime/policies/:scopeType/:scopeID", a.handleUpsertRuntimePolicy)
+	adminRouter.GET("/runtime/workspace-policies", a.handleListWorkspacePolicies)
+	adminRouter.POST("/runtime/workspace-policies", a.handleCreateWorkspacePolicy)
+	adminRouter.PUT("/runtime/workspace-policies/:policyID", a.handleUpdateWorkspacePolicy)
 	adminRouter.GET("/openai-codex/oauth/status", a.handleOpenAICodexStatus)
 	adminRouter.POST("/openai-codex/oauth/start", a.handleOpenAICodexStart)
 	adminRouter.POST("/openai-codex/oauth/poll", a.handleOpenAICodexPoll)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -566,12 +567,17 @@ func (p *MMPostStreamService) streamToPostImpl(ctx context.Context, stream *llm.
 	messageBuilder.Grow(4096) // Pre-allocate for typical response size
 	var reasoningBuffer strings.Builder
 	attachmentCapWarned := false
+	generatedFileIDs := []string{}
+	generatedFileLinksAppended := false
 
 	for {
 		select {
 		case event, ok := <-stream.Stream:
 			if !ok {
 				// Stream channel closed - persist final state
+				if !generatedFileLinksAppended && appendGeneratedFileLinks(post, acc, generatedFileIDs) {
+					generatedFileLinksAppended = true
+				}
 				if err := p.mmClient.UpdatePost(post); err != nil {
 					p.mmClient.LogError("Streaming failed to update post on channel close", "error", err)
 				}
@@ -596,6 +602,10 @@ func (p *MMPostStreamService) streamToPostImpl(ctx context.Context, stream *llm.
 				if ids, ok := event.Value.([]string); ok {
 					dropped := 0
 					for _, id := range ids {
+						id = strings.TrimSpace(id)
+						if id == "" {
+							continue
+						}
 						if slices.Contains(post.FileIds, id) {
 							continue
 						}
@@ -604,6 +614,7 @@ func (p *MMPostStreamService) streamToPostImpl(ctx context.Context, stream *llm.
 							continue
 						}
 						post.FileIds = append(post.FileIds, id)
+						generatedFileIDs = append(generatedFileIDs, id)
 					}
 					if dropped > 0 && !attachmentCapWarned {
 						attachmentCapWarned = true
@@ -628,6 +639,10 @@ func (p *MMPostStreamService) streamToPostImpl(ctx context.Context, stream *llm.
 					}
 					p.sendPostStreamingUpdateEventWithBroadcast(post, post.Message, broadcast)
 				}
+				if !generatedFileLinksAppended && appendGeneratedFileLinks(post, acc, generatedFileIDs) {
+					generatedFileLinksAppended = true
+					p.sendPostStreamingUpdateEventWithBroadcast(post, post.Message, broadcast)
+				}
 
 				if err := p.mmClient.UpdatePost(post); err != nil {
 					p.mmClient.LogError("Streaming failed to update post", "error", err)
@@ -637,8 +652,12 @@ func (p *MMPostStreamService) streamToPostImpl(ctx context.Context, stream *llm.
 			case llm.EventTypeError:
 				// Handle error event
 				var err error
+				var userFacingErrorText string
 				if errValue, ok := event.Value.(error); ok {
 					err = errValue
+				} else if message, ok := event.Value.(string); ok && strings.TrimSpace(message) != "" {
+					userFacingErrorText = strings.TrimSpace(message)
+					err = fmt.Errorf("%s", userFacingErrorText)
 				} else {
 					err = fmt.Errorf("unknown error from LLM")
 				}
@@ -654,6 +673,9 @@ func (p *MMPostStreamService) streamToPostImpl(ctx context.Context, stream *llm.
 				p.mmClient.LogError("Streaming result to post failed partway", "error", err)
 				T := i18n.LocalizerFunc(p.i18n, userLocale)
 				errorText := T("agents.stream_to_post_access_llm_error", "Sorry! An error occurred while accessing the LLM. See server logs for details.")
+				if userFacingErrorText != "" {
+					errorText = userFacingErrorText
+				}
 				post.Message += errorText
 				// Mirror into the accumulator so the turn carries the error.
 				if acc != nil {
@@ -796,4 +818,50 @@ func (p *MMPostStreamService) streamToPostImpl(ctx context.Context, stream *llm.
 			return
 		}
 	}
+}
+
+func appendGeneratedFileLinks(post *model.Post, acc *turnAccumulator, fileIDs []string) bool {
+	links := generatedFileLinks(fileIDs)
+	if links == "" {
+		return false
+	}
+
+	if strings.TrimSpace(post.Message) == "" {
+		post.Message = links
+		if acc != nil {
+			acc.text.WriteString(links)
+		}
+		return true
+	}
+
+	post.Message += "\n\n" + links
+	if acc != nil {
+		acc.text.WriteString("\n\n")
+		acc.text.WriteString(links)
+	}
+	return true
+}
+
+func generatedFileLinks(fileIDs []string) string {
+	if len(fileIDs) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	for _, fileID := range fileIDs {
+		fileID = strings.TrimSpace(fileID)
+		if fileID == "" {
+			continue
+		}
+		if builder.Len() == 0 {
+			builder.WriteString("Generated files:")
+		}
+		builder.WriteString("\n- [")
+		builder.WriteString(fileID)
+		builder.WriteString("](/files/")
+		builder.WriteString(url.PathEscape(fileID))
+		builder.WriteString(")")
+	}
+
+	return builder.String()
 }

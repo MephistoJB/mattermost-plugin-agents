@@ -2,7 +2,7 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {act, render, screen, waitFor} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
 
 import Rhs from './rhs';
 
@@ -10,14 +10,32 @@ const mockGetAIThreads = jest.fn();
 const mockGetUserMCPTools = jest.fn();
 const mockGetUserToolPreferences = jest.fn();
 const mockUpdateRead = jest.fn();
+const mockGetScopedRuntimePolicy = jest.fn();
+const mockGetRuntimeSessions = jest.fn();
+const mockGetRuntimeTasks = jest.fn();
+const mockGetRuntimeApprovals = jest.fn();
+const mockGetWorkspacePolicies = jest.fn();
+const mockGetSupervisorRuns = jest.fn();
+const mockSubmitRuntimeApproval = jest.fn();
+const mockSubmitRuntimeSessionAction = jest.fn();
+const mockUpsertScopedRuntimePolicy = jest.fn();
 
 jest.mock('@/client', () => ({
     getAIThreads: () => mockGetAIThreads(),
+    getRuntimeApprovals: () => mockGetRuntimeApprovals(),
+    getRuntimeSessions: (...args: unknown[]) => mockGetRuntimeSessions(...args),
+    getRuntimeTasks: (...args: unknown[]) => mockGetRuntimeTasks(...args),
+    getScopedRuntimePolicy: (...args: unknown[]) => mockGetScopedRuntimePolicy(...args),
+    getSupervisorRuns: (...args: unknown[]) => mockGetSupervisorRuns(...args),
     getUserMCPTools: () => mockGetUserMCPTools(),
     getUserToolPreferences: () => mockGetUserToolPreferences(),
+    getWorkspacePolicies: () => mockGetWorkspacePolicies(),
+    submitRuntimeApproval: (...args: unknown[]) => mockSubmitRuntimeApproval(...args),
+    submitRuntimeSessionAction: (...args: unknown[]) => mockSubmitRuntimeSessionAction(...args),
     updateRead: (userId: string, teamId: string, postId: string, timestamp: number) => (
         mockUpdateRead(userId, teamId, postId, timestamp)
     ),
+    upsertScopedRuntimePolicy: (...args: unknown[]) => mockUpsertScopedRuntimePolicy(...args),
 }));
 
 type SelectorFn = (state: unknown) => unknown;
@@ -113,6 +131,9 @@ const baseState = {
         teams: {
             currentTeamId: 'team-id',
         },
+        channels: {
+            currentChannelId: 'channel-id',
+        },
         posts: {
             posts: {
                 'post-id': {
@@ -140,6 +161,31 @@ describe('RHS', () => {
         jest.clearAllMocks();
         mockGetUserMCPTools.mockResolvedValue({servers: []});
         mockGetUserToolPreferences.mockResolvedValue({disabled_servers: []});
+        mockGetScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'codex',
+            providerID: 'codex',
+            model: 'gpt-5-codex',
+            workspacePolicyID: '',
+            cloudBudgetCents: 250,
+            cloudBudgetWindow: 'monthly',
+        });
+        mockGetRuntimeSessions.mockResolvedValue([]);
+        mockGetRuntimeTasks.mockResolvedValue([]);
+        mockGetRuntimeApprovals.mockResolvedValue([]);
+        mockGetWorkspacePolicies.mockResolvedValue([]);
+        mockGetSupervisorRuns.mockResolvedValue([]);
+        mockSubmitRuntimeApproval.mockImplementation(() => Promise.resolve());
+        mockSubmitRuntimeSessionAction.mockImplementation(() => Promise.resolve());
+        mockUpsertScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'local',
+            providerID: 'local',
+            model: 'gpt-5-codex',
+            workspacePolicyID: '',
+            cloudBudgetCents: 250,
+            cloudBudgetWindow: 'monthly',
+        });
         mockUpdateRead.mockImplementation(() => Promise.resolve());
         mockUseBotlist.mockReturnValue({
             bots: [activeBot],
@@ -203,5 +249,208 @@ describe('RHS', () => {
             await Promise.resolve();
         });
         errorLog.mockRestore();
+    });
+
+    test('renders runtime controls and updates scoped runtime policy', async () => {
+        mockGetRuntimeSessions.mockResolvedValue([{
+            id: 'session-1',
+            runtimeType: 'codex',
+            status: 'running',
+            model: 'gpt-5-codex',
+            providerID: 'codex',
+            externalSessionID: 'codex-session-1',
+            workspacePath: '/workspace/project',
+        }]);
+        mockGetRuntimeTasks.mockResolvedValue([{
+            id: 'task-1',
+            taskType: 'reminder',
+            status: 'queued',
+            title: 'Follow up',
+            prompt: 'Follow up',
+        }]);
+        mockGetRuntimeApprovals.mockResolvedValue([{
+            id: 'approval-1',
+            externalApprovalID: 'provider-approval-1',
+            runtimeSessionID: 'session-1',
+            requestPayload: {
+                method: 'item/commandExecution/requestApproval',
+                params: {
+                    command: 'make test',
+                },
+            },
+        }]);
+        mockGetSupervisorRuns.mockResolvedValue([{
+            id: 'supervisor-1',
+            status: 'running',
+            objective: 'Replace Hermes',
+            subagents: [{
+                id: 'subagent-1',
+                role: 'reviewer',
+                title: 'Review plan',
+                status: 'running',
+            }],
+        }]);
+
+        renderRHS();
+
+        await waitFor(() => {
+            expect(mockGetScopedRuntimePolicy).toHaveBeenCalledWith('thread', 'post-id');
+        });
+        expect(await screen.findByText('codex / running')).toBeTruthy();
+        expect(screen.getByText('gpt-5-codex / external codex-session-1 / workspace /workspace/project')).toBeTruthy();
+        expect(screen.getByText('running / 1 subagents')).toBeTruthy();
+        expect(screen.getByText('reviewer: running')).toBeTruthy();
+        expect(screen.getByText('reminder / queued')).toBeTruthy();
+        expect(screen.getByText('Command: make test')).toBeTruthy();
+        expect(screen.getByText('approval-1')).toBeTruthy();
+        expect((screen.getByLabelText('Cloud budget cents') as HTMLInputElement).value).toBe('250');
+
+        fireEvent.click(screen.getByLabelText('Stop session session-1'));
+        await waitFor(() => {
+            expect(mockSubmitRuntimeSessionAction).toHaveBeenCalledWith('session-1', {action: 'stop'});
+        });
+
+        fireEvent.click(screen.getByText('Local'));
+        await waitFor(() => {
+            expect(mockUpsertScopedRuntimePolicy).toHaveBeenCalledWith('thread', 'post-id', expect.objectContaining({
+                runtimeType: 'local',
+                providerID: 'local',
+                allowCloud: false,
+                allowLocal: true,
+                cloudBudgetCents: 250,
+                cloudBudgetWindow: 'monthly',
+            }));
+        });
+
+        fireEvent.click(screen.getByText('Accept'));
+        await waitFor(() => {
+            expect(mockSubmitRuntimeApproval).toHaveBeenCalledWith('approval-1', 'accept');
+        });
+    });
+
+    test('updates scoped workspace policy when workspace policies are available', async () => {
+        mockGetScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'codex',
+            providerID: 'codex',
+            model: 'gpt-5-codex',
+            workspacePolicyID: '',
+            approvalPolicyID: '',
+            allowCloud: true,
+            allowLocal: true,
+            cloudBudgetCents: 125,
+            cloudBudgetWindow: 'weekly',
+        });
+        mockGetWorkspacePolicies.mockResolvedValue([{
+            id: 'workspace-policy-1',
+            name: 'Project workspace',
+        }]);
+        mockUpsertScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'codex',
+            providerID: 'codex',
+            model: 'gpt-5-codex',
+            workspacePolicyID: 'workspace-policy-1',
+            cloudBudgetCents: 125,
+            cloudBudgetWindow: 'weekly',
+        });
+
+        renderRHS();
+
+        const select = await screen.findByLabelText('Workspace policy');
+        fireEvent.change(select, {target: {value: 'workspace-policy-1'}});
+
+        await waitFor(() => {
+            expect(mockUpsertScopedRuntimePolicy).toHaveBeenCalledWith('thread', 'post-id', expect.objectContaining({
+                runtimeType: 'codex',
+                providerID: 'codex',
+                model: 'gpt-5-codex',
+                workspacePolicyID: 'workspace-policy-1',
+                cloudBudgetCents: 125,
+                cloudBudgetWindow: 'weekly',
+            }));
+        });
+    });
+
+    test('updates scoped cloud budget', async () => {
+        mockGetScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'codex',
+            providerID: 'codex',
+            model: 'gpt-5-codex',
+            workspacePolicyID: '',
+            approvalPolicyID: '',
+            allowCloud: true,
+            allowLocal: true,
+            cloudBudgetCents: 125,
+            cloudBudgetWindow: 'daily',
+        });
+        mockUpsertScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'codex',
+            providerID: 'codex',
+            model: 'gpt-5-codex',
+            workspacePolicyID: '',
+            approvalPolicyID: '',
+            allowCloud: true,
+            allowLocal: true,
+            cloudBudgetCents: 500,
+            cloudBudgetWindow: 'daily',
+        });
+
+        renderRHS();
+
+        const budget = await screen.findByLabelText('Cloud budget cents');
+        fireEvent.change(budget, {target: {value: '500'}});
+
+        await waitFor(() => {
+            expect(mockUpsertScopedRuntimePolicy).toHaveBeenCalledWith('thread', 'post-id', expect.objectContaining({
+                runtimeType: 'codex',
+                providerID: 'codex',
+                cloudBudgetCents: 500,
+                cloudBudgetWindow: 'daily',
+            }));
+        });
+    });
+
+    test('updates scoped cloud budget window', async () => {
+        mockGetScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'codex',
+            providerID: 'codex',
+            model: 'gpt-5-codex',
+            workspacePolicyID: '',
+            approvalPolicyID: '',
+            allowCloud: true,
+            allowLocal: true,
+            cloudBudgetCents: 125,
+            cloudBudgetWindow: '',
+        });
+        mockUpsertScopedRuntimePolicy.mockResolvedValue({
+            id: 'policy-id',
+            runtimeType: 'codex',
+            providerID: 'codex',
+            model: 'gpt-5-codex',
+            workspacePolicyID: '',
+            approvalPolicyID: '',
+            allowCloud: true,
+            allowLocal: true,
+            cloudBudgetCents: 125,
+            cloudBudgetWindow: 'monthly',
+        });
+
+        renderRHS();
+
+        const windowSelect = await screen.findByLabelText('Cloud budget window');
+        fireEvent.change(windowSelect, {target: {value: 'monthly'}});
+
+        await waitFor(() => {
+            expect(mockUpsertScopedRuntimePolicy).toHaveBeenCalledWith('thread', 'post-id', expect.objectContaining({
+                runtimeType: 'codex',
+                providerID: 'codex',
+                cloudBudgetCents: 125,
+                cloudBudgetWindow: 'monthly',
+            }));
+        });
     });
 });

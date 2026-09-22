@@ -23,6 +23,7 @@ import ThreadItem from './thread_item';
 import RHSHeader from './rhs_header';
 import RHSNewTab from './rhs_new_tab';
 import RhsFileDropZone from './rhs_file_drop_zone';
+import RuntimeControl from './runtime_control';
 
 const ThreadViewer = UnstyledThreadViewer && styled(UnstyledThreadViewer)`
     height: 100%;
@@ -66,6 +67,7 @@ export default function RHS() {
     const selectedPostId = useSelector((state: any) => state['plugins-' + manifest.id].selectedPostId);
     const currentUserId = useSelector<GlobalState, string>((state) => state.entities.users.currentUserId);
     const currentTeamId = useSelector<GlobalState, string>((state) => state.entities.teams.currentTeamId);
+    const currentChannelId = useSelector<GlobalState, string | undefined>((state) => state.entities.channels.currentChannelId);
 
     const [threads, setThreads] = useState<AIThread[] | null>(null);
     const [disabledServers, setDisabledServers] = useState<string[]>([]);
@@ -200,6 +202,11 @@ export default function RHS() {
                 onDisabledServersChange={setDisabledServers}
                 preloadedServers={preloadedServers}
                 activeConversationId={activeConversationId}
+            />
+            <RuntimeControl
+                channelId={currentChannelId}
+                selectedPostId={selectedPostId}
+                conversationId={activeConversationId}
             />
             {wrapInDropZone ? (
                 <RhsFileDropZone>{content}</RhsFileDropZone>

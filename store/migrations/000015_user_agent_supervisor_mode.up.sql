@@ -1,0 +1,2 @@
+ALTER TABLE Agents_UserAgents
+    ADD COLUMN IF NOT EXISTS SupervisorMode BOOLEAN NOT NULL DEFAULT false;

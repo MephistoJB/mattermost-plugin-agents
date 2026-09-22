@@ -6,7 +6,9 @@ package conversations
 import (
 	stdcontext "context"
 	"fmt"
+	"sync"
 
+	"github.com/mattermost/mattermost-plugin-agents/v2/agentruntime"
 	"github.com/mattermost/mattermost-plugin-agents/v2/bots"
 	"github.com/mattermost/mattermost-plugin-agents/v2/conversation"
 	"github.com/mattermost/mattermost-plugin-agents/v2/enterprise"
@@ -17,10 +19,12 @@ import (
 	"github.com/mattermost/mattermost-plugin-agents/v2/mmapi"
 	"github.com/mattermost/mattermost-plugin-agents/v2/mmtools"
 	"github.com/mattermost/mattermost-plugin-agents/v2/prompts"
+	"github.com/mattermost/mattermost-plugin-agents/v2/runtimecontrol"
 	"github.com/mattermost/mattermost-plugin-agents/v2/streaming"
 	"github.com/mattermost/mattermost-plugin-agents/v2/subtitles"
 	"github.com/mattermost/mattermost-plugin-agents/v2/telemetry"
 	"github.com/mattermost/mattermost-plugin-agents/v2/toolrunner"
+	"github.com/mattermost/mattermost-plugin-agents/v2/ttsbroker"
 	"github.com/mattermost/mattermost/server/public/model"
 )
 
@@ -31,6 +35,7 @@ const AnalysisTypeProp = "prompt_type"
 type ConfigProvider interface {
 	EnableChannelMentionToolCalling() bool
 	AllowNativeWebSearchInChannels() bool
+	EnableAgentRuntimeControlPlane() bool
 	MCP() mcp.Config
 }
 
@@ -47,6 +52,19 @@ type Conversations struct {
 	configProvider    ConfigProvider
 	toolPolicyChecker mcp.ToolPolicyChecker
 	convService       *conversation.Service
+	runtimeControl    RuntimeControl
+	textToSpeech      *ttsbroker.Service
+	serverID          string
+	channelQueueMu    sync.Mutex
+	channelQueues     map[string]chan channelMessage
+}
+
+type RuntimeControl interface {
+	RegisterRuntime(runtimeType agentruntime.RuntimeType, runtime agentruntime.AgentRuntime)
+	RegisterRuntimeIfAbsent(runtimeType agentruntime.RuntimeType, runtime agentruntime.AgentRuntime)
+	ResolvePolicy(req runtimecontrol.EnsureSessionRequest) (agentruntime.EffectivePolicy, error)
+	StartTurn(ctx stdcontext.Context, req runtimecontrol.StartTurnRequest) (*runtimecontrol.StartTurnResult, error)
+	StartSupervisorTurn(ctx stdcontext.Context, req runtimecontrol.StartTurnRequest) (*runtimecontrol.StartTurnResult, error)
 }
 
 // MeetingsService defines the interface for meetings functionality needed by conversations
@@ -97,6 +115,26 @@ func (c *Conversations) SetConversationService(svc *conversation.Service) {
 	c.convService = svc
 }
 
+func (c *Conversations) SetRuntimeControl(runtimeControl RuntimeControl) {
+	c.runtimeControl = runtimeControl
+}
+
+func (c *Conversations) SetServerID(serverID string) {
+	c.serverID = serverID
+}
+
+func (c *Conversations) SetTextToSpeech(textToSpeech *ttsbroker.Service) {
+	c.textToSpeech = textToSpeech
+}
+
+func (c *Conversations) TextToSpeechEnabled() bool {
+	return c != nil && c.textToSpeech != nil && c.textToSpeech.Enabled()
+}
+
+func (c *Conversations) TextToSpeechLocal() bool {
+	return c != nil && c.textToSpeech != nil && c.textToSpeech.IsLocal()
+}
+
 // DMConversationResult is the return value of CreateOrGetDMConversation.
 type DMConversationResult struct {
 	ConversationID string
@@ -113,6 +151,7 @@ func (c *Conversations) CreateOrGetDMConversation(
 	channel *model.Channel,
 	post *model.Post,
 	llmCtx *llm.Context,
+	userMessageOverride ...string,
 ) (*DMConversationResult, error) {
 	if c.convService == nil {
 		return nil, fmt.Errorf("conversation service not configured")
@@ -137,6 +176,10 @@ func (c *Conversations) CreateOrGetDMConversation(
 	}
 
 	postID := post.Id
+	userMessage := post.Message
+	if len(userMessageOverride) > 0 {
+		userMessage = userMessageOverride[0]
+	}
 
 	if post.RootId == "" {
 		channelID := channel.Id
@@ -147,7 +190,7 @@ func (c *Conversations) CreateOrGetDMConversation(
 			RootPostID:   &postID,
 			Operation:    "conversation",
 			SystemPrompt: systemPrompt,
-			UserMessage:  post.Message,
+			UserMessage:  userMessage,
 			UserPostID:   &postID,
 			FileIDs:      post.FileIds,
 		})
@@ -164,7 +207,7 @@ func (c *Conversations) CreateOrGetDMConversation(
 		RootPostID:   post.RootId,
 		Operation:    "conversation",
 		SystemPrompt: systemPrompt,
-		UserMessage:  post.Message,
+		UserMessage:  userMessage,
 		UserPostID:   &postID,
 		FileIDs:      post.FileIds,
 	})

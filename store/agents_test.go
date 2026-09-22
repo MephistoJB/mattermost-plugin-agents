@@ -43,6 +43,7 @@ func testAgent(creatorID, username, displayName string) *llm.BotConfig {
 		ThinkingBudget:          10000,
 		StructuredOutputEnabled: true,
 		MaxToolTurns:            42,
+		SupervisorMode:          true,
 	}
 }
 
@@ -102,6 +103,7 @@ func TestAgentCreateAndGet(t *testing.T) {
 	assert.Equal(t, 10000, fetched.ThinkingBudget)
 	assert.True(t, fetched.StructuredOutputEnabled)
 	assert.Equal(t, 42, fetched.MaxToolTurns)
+	assert.True(t, fetched.SupervisorMode)
 }
 
 // TestAgentMaxToolTurnsDefaultsToThirty verifies that the SQL DEFAULT 30 supplied
@@ -485,9 +487,17 @@ func TestAgentAdminLifecycleRoundTrip(t *testing.T) {
 
 	originalCreateAt := cfg.CreateAt
 	cfg.AdminUserIDs = []string{"admin-a"} // shrink
+	cfg.SupervisorMode = true
 	require.NoError(t, s.UpdateAgent(cfg))
 	fetched, err = s.GetAgent(cfg.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"admin-a"}, fetched.AdminUserIDs)
+	assert.True(t, fetched.SupervisorMode)
 	assert.GreaterOrEqual(t, fetched.UpdateAt, originalCreateAt)
+
+	cfg.SupervisorMode = false
+	require.NoError(t, s.UpdateAgent(cfg))
+	fetched, err = s.GetAgent(cfg.ID)
+	require.NoError(t, err)
+	assert.False(t, fetched.SupervisorMode)
 }

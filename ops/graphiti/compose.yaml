@@ -1,0 +1,31 @@
+services:
+  graphiti:
+    # Official combined Graphiti MCP + FalkorDB image, pinned to a multi-arch digest.
+    image: zepai/knowledge-graph-mcp@sha256:a2536b6d59b4afb359a13aeaa4a9d2f4db195af14231168efda6a3d166228956
+    restart: unless-stopped
+    environment:
+      CONFIG_PATH: /app/mcp/config/config.yaml
+      FALKORDB_URI: redis://localhost:6379
+      FALKORDB_DATABASE: personal_global
+      GRAPHITI_GROUP_ID: personal-global
+      BROWSER: "0"
+      SEMAPHORE_LIMIT: "1"
+      OPENAI_API_KEY: ${GRAPHITI_PROVIDER_KEY:-ollama}
+      OPENAI_API_URL: ${GRAPHITI_PROVIDER_URL:-http://192.168.1.16:11434/v1}
+      MODEL_NAME: ${GRAPHITI_LLM_MODEL:-qwen2.5:7b}
+      EMBEDDER_MODEL: ${GRAPHITI_EMBEDDER_MODEL:-nomic-embed-text}
+      EMBEDDING_DIM: ${GRAPHITI_EMBEDDING_DIM:-768}
+      LLM_STRUCTURED_OUTPUT_MODE: json_schema
+      GRAPHITI_TELEMETRY_ENABLED: "false"
+    volumes:
+      - ${GRAPHITI_DATA_DIR:?Set a persistent Graphiti data directory}:/var/lib/falkordb/data
+      - ./config.yaml:/app/mcp/config/config.yaml:ro
+    ports:
+      # Raw Graphiti has no Mattermost-aware authorization. Pilot access is local only.
+      - "127.0.0.1:${GRAPHITI_LOCAL_PORT:-18000}:8000"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

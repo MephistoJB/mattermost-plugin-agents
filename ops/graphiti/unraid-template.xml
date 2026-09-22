@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>graphiti-memory</Name>
+  <Repository>zepai/knowledge-graph-mcp@sha256:a2536b6d59b4afb359a13aeaa4a9d2f4db195af14231168efda6a3d166228956</Repository>
+  <Registry>https://hub.docker.com/r/zepai/knowledge-graph-mcp</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/getzep/graphiti/tree/main/mcp_server</Support>
+  <Project>https://github.com/getzep/graphiti</Project>
+  <Overview>Graphiti MCP server and FalkorDB in the official combined image. The MCP endpoint binds only to this host; access control belongs in the memory service.</Overview>
+  <Category>AI: Other:</Category>
+  <WebUI/>
+  <ExtraParams>--publish 127.0.0.1:18000:8000/tcp --restart unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <Config Name="FalkorDB data" Target="/var/lib/falkordb/data" Default="/mnt/cache/appdata/graphiti-memory/falkordb" Mode="rw" Description="Persistent graph database" Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/graphiti-memory/falkordb</Config>
+  <Config Name="Graphiti config" Target="/app/mcp/config/config.yaml" Default="/mnt/cache/appdata/graphiti-memory/config.yaml" Mode="ro" Description="Graphiti server configuration" Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/graphiti-memory/config.yaml</Config>
+  <Config Name="CONFIG_PATH" Target="CONFIG_PATH" Default="/app/mcp/config/config.yaml" Mode="" Description="Configuration file inside the container" Type="Variable" Display="advanced" Required="true" Mask="false">/app/mcp/config/config.yaml</Config>
+  <Config Name="FALKORDB_URI" Target="FALKORDB_URI" Default="redis://localhost:6379" Mode="" Description="Bundled FalkorDB" Type="Variable" Display="advanced" Required="true" Mask="false">redis://localhost:6379</Config>
+  <Config Name="FALKORDB_DATABASE" Target="FALKORDB_DATABASE" Default="personal_global" Mode="" Description="Shared personal graph" Type="Variable" Display="always" Required="true" Mask="false">personal_global</Config>
+  <Config Name="GRAPHITI_GROUP_ID" Target="GRAPHITI_GROUP_ID" Default="personal-global" Mode="" Description="Shared memory namespace" Type="Variable" Display="always" Required="true" Mask="false">personal-global</Config>
+  <Config Name="BROWSER" Target="BROWSER" Default="0" Mode="" Description="Disable bundled database browser" Type="Variable" Display="advanced" Required="true" Mask="false">0</Config>
+  <Config Name="SEMAPHORE_LIMIT" Target="SEMAPHORE_LIMIT" Default="1" Mode="" Description="Serial extraction for local model" Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
+  <Config Name="OPENAI_API_KEY" Target="OPENAI_API_KEY" Default="ollama" Mode="" Description="Placeholder accepted by local Ollama" Type="Variable" Display="advanced" Required="true" Mask="true">ollama</Config>
+  <Config Name="OPENAI_API_URL" Target="OPENAI_API_URL" Default="http://192.168.1.16:11434/v1" Mode="" Description="Existing local Ollama API" Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.16:11434/v1</Config>
+  <Config Name="MODEL_NAME" Target="MODEL_NAME" Default="qwen2.5:7b" Mode="" Description="Local extraction model" Type="Variable" Display="always" Required="true" Mask="false">qwen2.5:7b</Config>
+  <Config Name="EMBEDDER_MODEL" Target="EMBEDDER_MODEL" Default="nomic-embed-text" Mode="" Description="Local embedding model" Type="Variable" Display="always" Required="true" Mask="false">nomic-embed-text</Config>
+  <Config Name="EMBEDDING_DIM" Target="EMBEDDING_DIM" Default="768" Mode="" Description="Embedding dimensions" Type="Variable" Display="advanced" Required="true" Mask="false">768</Config>
+  <Config Name="LLM_STRUCTURED_OUTPUT_MODE" Target="LLM_STRUCTURED_OUTPUT_MODE" Default="json_schema" Mode="" Description="Ollama structured output mode" Type="Variable" Display="advanced" Required="true" Mask="false">json_schema</Config>
+  <Config Name="GRAPHITI_TELEMETRY_ENABLED" Target="GRAPHITI_TELEMETRY_ENABLED" Default="false" Mode="" Description="Disable Graphiti telemetry" Type="Variable" Display="advanced" Required="true" Mask="false">false</Config>
+</Container>

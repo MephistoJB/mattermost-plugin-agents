@@ -159,6 +159,7 @@ func updateAgentBodyFromStored(cfg *llm.BotConfig, overrides map[string]any) map
 		"thinkingBudget":          cfg.ThinkingBudget,
 		"structuredOutputEnabled": cfg.StructuredOutputEnabled,
 		"maxToolTurns":            cfg.MaxToolTurns,
+		"supervisorMode":          cfg.SupervisorMode,
 	}
 	for k, v := range overrides {
 		body[k] = v
@@ -223,6 +224,7 @@ func TestCreateAgentPersistsExplicitRequestValues(t *testing.T) {
 		"reasoningEnabled":        false,
 		"reasoningEffort":         "high",
 		"structuredOutputEnabled": false,
+		"supervisorMode":          true,
 	})
 
 	recorder := doRequest(e.api, http.MethodPost, "/agents", body, testUserID)
@@ -235,6 +237,7 @@ func TestCreateAgentPersistsExplicitRequestValues(t *testing.T) {
 	assert.False(t, agent.ReasoningEnabled)
 	assert.Equal(t, "high", agent.ReasoningEffort)
 	assert.False(t, agent.StructuredOutputEnabled)
+	assert.True(t, agent.SupervisorMode)
 	assert.Empty(t, agent.EnabledNativeTools)
 }
 
@@ -1185,6 +1188,7 @@ func TestUpdateAgentFullReplacementOverwritesMutableFields(t *testing.T) {
 		ReasoningEffort:         "high",
 		ThinkingBudget:          4096,
 		StructuredOutputEnabled: true,
+		SupervisorMode:          true,
 	}
 
 	body := map[string]any{
@@ -1208,6 +1212,7 @@ func TestUpdateAgentFullReplacementOverwritesMutableFields(t *testing.T) {
 		"reasoningEffort":         "",
 		"thinkingBudget":          0,
 		"structuredOutputEnabled": false,
+		"supervisorMode":          false,
 	}
 
 	recorder := doRequest(e.api, http.MethodPut, "/agents/agent-1", body, testUserID)
@@ -1222,6 +1227,7 @@ func TestUpdateAgentFullReplacementOverwritesMutableFields(t *testing.T) {
 	assert.Empty(t, updated.ReasoningEffort)
 	assert.Zero(t, updated.ThinkingBudget)
 	assert.False(t, updated.StructuredOutputEnabled)
+	assert.False(t, updated.SupervisorMode)
 }
 
 // TestAgentSaveErrorsAreActionable confirms every failure path on the agent

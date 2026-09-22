@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"github.com/mattermost/mattermost-plugin-agents/v2/agentruntime"
 	"github.com/mattermost/mattermost-plugin-agents/v2/embeddings"
 	"github.com/mattermost/mattermost-plugin-agents/v2/llm"
 )
@@ -32,11 +33,32 @@ type Config struct {
 	AllowUnsafeLinks                bool                             `json:"allowUnsafeLinks"`
 	EnableChannelMentionToolCalling bool                             `json:"enableChannelMentionToolCalling"`
 	AllowNativeWebSearchInChannels  bool                             `json:"allowNativeWebSearchInChannels"`
+	EnableAgentRuntimeControlPlane  bool                             `json:"enableAgentRuntimeControlPlane"`
+	CodexRuntime                    CodexRuntimeConfig               `json:"codexRuntime"`
+	TextToSpeech                    TextToSpeechConfig               `json:"textToSpeech"`
+	RuntimeCostRates                []agentruntime.RuntimeCostRate   `json:"runtimeCostRates"`
 	EmbeddingSearchConfig           embeddings.EmbeddingSearchConfig `json:"embeddingSearchConfig"`
 	MCP                             MCPConfig                        `json:"mcp"`
 	WebSearch                       WebSearchConfig                  `json:"webSearch"`
 	TelemetryOutput                 string                           `json:"telemetryOutput"`
 	OpenTelemetryEndpoint           string                           `json:"openTelemetryEndpoint"`
+}
+
+type CodexRuntimeConfig struct {
+	CommandPath string `json:"commandPath"`
+	Transport   string `json:"transport"`
+	ExtraArgs   string `json:"extraArgs"`
+	Home        string `json:"home"`
+}
+
+type TextToSpeechConfig struct {
+	Enabled bool   `json:"enabled"`
+	APIURL  string `json:"apiURL"`
+	APIKey  string `json:"apiKey"`
+	Model   string `json:"model"`
+	Voice   string `json:"voice"`
+	Format  string `json:"format"`
+	Local   bool   `json:"local"`
 }
 
 type WebSearchConfig struct {
@@ -179,6 +201,31 @@ func (c *Container) AllowNativeWebSearchInChannels() bool {
 	}
 
 	return cfg.AllowNativeWebSearchInChannels
+}
+
+func (c *Container) EnableAgentRuntimeControlPlane() bool {
+	cfg := c.cfg.Load()
+	if cfg == nil {
+		return false
+	}
+
+	return cfg.EnableAgentRuntimeControlPlane
+}
+
+func (c *Container) RuntimeCostRates() []agentruntime.RuntimeCostRate {
+	cfg := c.cfg.Load()
+	if cfg == nil || len(cfg.RuntimeCostRates) == 0 {
+		return nil
+	}
+	return append([]agentruntime.RuntimeCostRate(nil), cfg.RuntimeCostRates...)
+}
+
+func (c *Container) CodexRuntime() CodexRuntimeConfig {
+	cfg := c.cfg.Load()
+	if cfg == nil {
+		return CodexRuntimeConfig{}
+	}
+	return cfg.CodexRuntime
 }
 
 func (c *Container) RegisterUpdateListener(listener UpdateListener) {

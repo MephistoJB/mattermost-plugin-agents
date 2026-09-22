@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Audit event names for every state-changing operation in the plugin: 21
-// routed events plus the non-gin MCP session grant. All are declared here,
+// Audit event names for every state-changing operation in the plugin. Routed
+// events plus the non-gin MCP session grant are declared here,
 // including ones whose instrumentation lands in later changes, so call sites
 // never use inline string literals and parallel work never edits this file.
 //
@@ -19,7 +19,14 @@ import (
 // logged, so the names stay unprefixed.
 const (
 	// Config.
-	AuditEventSaveConfig = "saveConfig"
+	AuditEventSaveConfig              = "saveConfig"
+	AuditEventUpsertRuntimePolicy     = "upsertRuntimePolicy"
+	AuditEventUpsertWorkspacePolicy   = "upsertWorkspacePolicy"
+	AuditEventRuntimeApprovalDecision = "runtimeApprovalDecision"
+	AuditEventRuntimeSessionAction    = "runtimeSessionAction"
+	AuditEventUpsertTask              = "upsertTask"
+	AuditEventDeleteTask              = "deleteTask"
+	AuditEventHermesOffChecklist      = "hermesOffChecklist"
 
 	// Admin operations.
 	AuditEventReindexPosts          = "reindexPosts"
@@ -83,7 +90,17 @@ func handlerFuncName(h gin.HandlerFunc) string {
 func buildAuditEventRegistry(a *API) map[string]string {
 	return map[string]string{
 		// Config.
-		handlerFuncName(a.handleSaveConfig): AuditEventSaveConfig,
+		handlerFuncName(a.handleSaveConfig):                   AuditEventSaveConfig,
+		handlerFuncName(a.handleUpsertRuntimePolicy):          AuditEventUpsertRuntimePolicy,
+		handlerFuncName(a.handleUpsertScopedRuntimePolicy):    AuditEventUpsertRuntimePolicy,
+		handlerFuncName(a.handleCreateWorkspacePolicy):        AuditEventUpsertWorkspacePolicy,
+		handlerFuncName(a.handleUpdateWorkspacePolicy):        AuditEventUpsertWorkspacePolicy,
+		handlerFuncName(a.handleSubmitRuntimeApproval):        AuditEventRuntimeApprovalDecision,
+		handlerFuncName(a.handleAdminSubmitRuntimeApproval):   AuditEventRuntimeApprovalDecision,
+		handlerFuncName(a.handleRuntimeSessionAction):         AuditEventRuntimeSessionAction,
+		handlerFuncName(a.handleAdminRuntimeSessionAction):    AuditEventRuntimeSessionAction,
+		handlerFuncName(a.handleAdminRuntimeTaskAction):       AuditEventUpsertTask,
+		handlerFuncName(a.handleUpdateHermesOffChecklistItem): AuditEventHermesOffChecklist,
 
 		// Admin operations.
 		handlerFuncName(a.handleReindexPosts):          AuditEventReindexPosts,

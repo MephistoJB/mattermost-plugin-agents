@@ -11,6 +11,7 @@ import {PluginConfig} from '@/components/system_console/plugin_config_types';
 import type {ToolAnswer} from '@/components/tool_types';
 import type {Composition, ConversationResponse} from '@/types/conversation';
 import {UserAgent, CreateAgentRequest, UpdateAgentRequest, ServiceInfo} from '@/types/agents';
+import type {HermesOffChecklist, HermesOffChecklistItemState, HermesOffChecklistUpdateRequest, RuntimeApproval, RuntimeHealth, RuntimePolicy, RuntimePolicyRequest, RuntimeSession, RuntimeSessionActionRequest, RuntimeTask, RuntimeTaskActionRequest, RuntimeTaskRun, SupervisorRun, WorkspacePolicy, WorkspacePolicyRequest} from '@/types/runtime';
 import {isValidId} from '@/utils/ids';
 
 import manifest from './manifest';
@@ -1119,6 +1120,481 @@ export async function fetchModelsForAgentService(serviceId: string, signal?: Abo
         }),
         signal,
     });
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getRuntimeSessions(params: {conversationId?: string; agentId?: string; status?: string; limit?: number} = {}): Promise<RuntimeSession[]> {
+    const query = new URLSearchParams();
+    if (params.conversationId) {
+        query.set('conversation_id', params.conversationId);
+    }
+    if (params.agentId) {
+        query.set('agent_id', params.agentId);
+    }
+    if (params.status) {
+        query.set('status', params.status);
+    }
+    if (params.limit) {
+        query.set('limit', String(params.limit));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const url = `${baseRoute()}/runtime/sessions${suffix}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getAdminRuntimeSessions(params: {conversationId?: string; channelId?: string; rootPostId?: string; userId?: string; agentId?: string; status?: string; limit?: number} = {}): Promise<RuntimeSession[]> {
+    const query = new URLSearchParams();
+    if (params.conversationId) {
+        query.set('conversation_id', params.conversationId);
+    }
+    if (params.channelId) {
+        query.set('channel_id', params.channelId);
+    }
+    if (params.rootPostId) {
+        query.set('root_post_id', params.rootPostId);
+    }
+    if (params.userId) {
+        query.set('user_id', params.userId);
+    }
+    if (params.agentId) {
+        query.set('agent_id', params.agentId);
+    }
+    if (params.status) {
+        query.set('status', params.status);
+    }
+    if (params.limit) {
+        query.set('limit', String(params.limit));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const url = `${baseRoute()}/admin/runtime/sessions${suffix}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function submitRuntimeSessionAction(sessionID: string, request: RuntimeSessionActionRequest): Promise<void> {
+    const url = `${baseRoute()}/runtime/sessions/${encodeURIComponent(sessionID)}/action`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+        body: JSON.stringify(request),
+    }));
+
+    if (response.status === 204 || response.ok) {
+        return;
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function submitAdminRuntimeSessionAction(sessionID: string, request: RuntimeSessionActionRequest): Promise<void> {
+    const url = `${baseRoute()}/admin/runtime/sessions/${encodeURIComponent(sessionID)}/action`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+        body: JSON.stringify(request),
+    }));
+
+    if (response.status === 204 || response.ok) {
+        return;
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getRuntimeTasks(params: {channelId?: string; rootPostId?: string; status?: string; limit?: number} = {}): Promise<RuntimeTask[]> {
+    const query = new URLSearchParams();
+    if (params.channelId) {
+        query.set('channel_id', params.channelId);
+    }
+    if (params.rootPostId) {
+        query.set('root_post_id', params.rootPostId);
+    }
+    if (params.status) {
+        query.set('status', params.status);
+    }
+    if (params.limit) {
+        query.set('limit', String(params.limit));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const url = `${baseRoute()}/runtime/tasks${suffix}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getAdminRuntimeTasks(params: {channelId?: string; rootPostId?: string; status?: string; limit?: number} = {}): Promise<RuntimeTask[]> {
+    const query = new URLSearchParams();
+    if (params.channelId) {
+        query.set('channel_id', params.channelId);
+    }
+    if (params.rootPostId) {
+        query.set('root_post_id', params.rootPostId);
+    }
+    if (params.status) {
+        query.set('status', params.status);
+    }
+    if (params.limit) {
+        query.set('limit', String(params.limit));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const url = `${baseRoute()}/admin/runtime/tasks${suffix}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function submitAdminRuntimeTaskAction(taskID: string, request: RuntimeTaskActionRequest): Promise<RuntimeTask | null> {
+    const url = `${baseRoute()}/admin/runtime/tasks/${encodeURIComponent(taskID)}/action`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+        body: JSON.stringify(request),
+    }));
+
+    if (response.status === 204) {
+        return null;
+    }
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getAdminRuntimeTaskRuns(taskID: string): Promise<RuntimeTaskRun[]> {
+    const url = `${baseRoute()}/admin/runtime/tasks/${encodeURIComponent(taskID)}/runs`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getSupervisorRuns(params: {conversationId?: string; runtimeSessionId?: string; rootTaskId?: string; status?: string; limit?: number} = {}): Promise<SupervisorRun[]> {
+    const query = new URLSearchParams();
+    if (params.conversationId) {
+        query.set('conversation_id', params.conversationId);
+    }
+    if (params.runtimeSessionId) {
+        query.set('runtime_session_id', params.runtimeSessionId);
+    }
+    if (params.rootTaskId) {
+        query.set('root_task_id', params.rootTaskId);
+    }
+    if (params.status) {
+        query.set('status', params.status);
+    }
+    if (params.limit) {
+        query.set('limit', String(params.limit));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const url = `${baseRoute()}/runtime/supervisor-runs${suffix}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getRuntimeApprovals(limit = 20): Promise<RuntimeApproval[]> {
+    const url = `${baseRoute()}/runtime/approvals?limit=${encodeURIComponent(String(limit))}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getAdminRuntimeApprovals(params: {runtimeSessionId?: string; requestedBy?: string; status?: string; limit?: number} = {}): Promise<RuntimeApproval[]> {
+    const query = new URLSearchParams();
+    if (params.runtimeSessionId) {
+        query.set('runtime_session_id', params.runtimeSessionId);
+    }
+    if (params.requestedBy) {
+        query.set('requested_by', params.requestedBy);
+    }
+    if (params.status) {
+        query.set('status', params.status);
+    }
+    if (params.limit) {
+        query.set('limit', String(params.limit));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const url = `${baseRoute()}/admin/runtime/approvals${suffix}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function submitRuntimeApproval(approvalId: string, decision: 'accept' | 'deny', reason = ''): Promise<void> {
+    const url = `${baseRoute()}/runtime/approvals/${encodeURIComponent(approvalId)}/decision`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+        body: JSON.stringify({decision, reason}),
+    }));
+
+    if (!response.ok) {
+        throw new ClientError(Client4.url, {
+            message: '',
+            status_code: response.status,
+            url,
+        });
+    }
+}
+
+export async function getRuntimePolicies(): Promise<RuntimePolicy[]> {
+    const url = `${baseRoute()}/admin/runtime/policies`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function submitAdminRuntimeApproval(approvalId: string, decision: 'accept' | 'deny', reason = ''): Promise<void> {
+    const url = `${baseRoute()}/admin/runtime/approvals/${encodeURIComponent(approvalId)}/decision`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+        body: JSON.stringify({decision, reason}),
+    }));
+
+    if (response.status === 204 || response.ok) {
+        return;
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getRuntimeHealth(): Promise<RuntimeHealth> {
+    const url = `${baseRoute()}/admin/runtime/health`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getHermesOffChecklist(): Promise<HermesOffChecklist> {
+    const url = `${baseRoute()}/admin/runtime/hermes-off-checklist`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function updateHermesOffChecklistItem(itemKey: string, request: HermesOffChecklistUpdateRequest): Promise<HermesOffChecklistItemState> {
+    const url = `${baseRoute()}/admin/runtime/hermes-off-checklist/${encodeURIComponent(itemKey)}`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'PUT',
+        body: JSON.stringify(request),
+    }));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getScopedRuntimePolicy(scopeType: 'channel' | 'thread', scopeId: string): Promise<RuntimePolicy | null> {
+    const url = `${baseRoute()}/runtime/policies/${encodeURIComponent(scopeType)}/${encodeURIComponent(scopeId)}`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+    if (response.status === 404) {
+        return null;
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function upsertScopedRuntimePolicy(scopeType: 'channel' | 'thread', scopeId: string, policy: RuntimePolicyRequest): Promise<RuntimePolicy> {
+    const url = `${baseRoute()}/runtime/policies/${encodeURIComponent(scopeType)}/${encodeURIComponent(scopeId)}`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'PUT',
+        body: JSON.stringify(policy),
+    }));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function upsertRuntimePolicy(scopeType: string, scopeId: string, policy: RuntimePolicyRequest): Promise<RuntimePolicy> {
+    const url = `${baseRoute()}/admin/runtime/policies/${encodeURIComponent(scopeType)}/${encodeURIComponent(scopeId)}`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'PUT',
+        body: JSON.stringify(policy),
+    }));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function getWorkspacePolicies(): Promise<WorkspacePolicy[]> {
+    const url = `${baseRoute()}/admin/runtime/workspace-policies`;
+    const response = await fetch(url, Client4.getOptions({method: 'GET'}));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function createWorkspacePolicy(policy: WorkspacePolicyRequest): Promise<WorkspacePolicy> {
+    const url = `${baseRoute()}/admin/runtime/workspace-policies`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'POST',
+        body: JSON.stringify(policy),
+    }));
+
+    if (response.ok) {
+        return response.json();
+    }
+
+    throw new ClientError(Client4.url, {
+        message: '',
+        status_code: response.status,
+        url,
+    });
+}
+
+export async function updateWorkspacePolicy(policyID: string, policy: WorkspacePolicyRequest): Promise<WorkspacePolicy> {
+    const url = `${baseRoute()}/admin/runtime/workspace-policies/${encodeURIComponent(policyID)}`;
+    const response = await fetch(url, Client4.getOptions({
+        method: 'PUT',
+        body: JSON.stringify(policy),
+    }));
 
     if (response.ok) {
         return response.json();
