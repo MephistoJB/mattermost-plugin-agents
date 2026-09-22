@@ -22,6 +22,12 @@ Der Nutzer möchte keinen Custom Plugin mehr in seiner Mattermost-Instanz. Nach 
 
 Die Graphiti-Instanz auf `centralserver` ist ein getrennter Pilotdienst ohne Mattermost-Anbindung. Ihre weitere Verwendung oder ihr Rückbau ist eine eigene Infrastrukturentscheidung. Der hier dokumentierte Rückbau betrifft die Mattermost-Installation.
 
-## Nachweis nach dem Rückbau
+## Durchgeführter Rückbau auf `nas1`
 
-Nach der Deinstallation sind Plugin-Liste, Plugin-Dateien, zugehörige Bot-Aktivität und der Wegfall des Plugin-Endpunkts zu prüfen. Der tatsächliche Zeitpunkt und die Ergebnisse werden hier nachgetragen.
+Am 22.09.2026 wurde der installierte Fork `mattermost-ai` (Version `2.5.0+c3168cd0`) mit `mmctl plugin delete mattermost-ai --local` deinstalliert. Die vier ausschließlich diesem Plugin gehörenden Bot-Konten `codex-cloud`, `local-llm`, `local-transcriber` und `local-stt-openai-compatible` wurden deaktiviert. Andere Bots und Plugins wurden nicht geändert.
+
+Die zwei nur für Codex hinzugefügten Bind-Mounts von `codex-busybox-static` auf `/bin/busybox` und `/bin/sh` wurden aus der QNAP-Container-Station-Compose-Datei entfernt. Danach stimmte sie bytegenau mit der ursprünglichen `/share/Docker/mattermost/compose.yaml` überein, und der Mattermost-Container wurde daraus neu erstellt. Die vorige QNAP-Compose-Datei liegt als lokale Rückwegkopie unter `/share/Docker/mattermost/backups/docker-compose-before-codex-retirement-20260922.yml` und wurde nicht nach Git übernommen. Die plugin-spezifische Codex-Runtime unter `/share/Docker/mattermost/data/codex-home`, `codex-bin`, `codex-busybox-static` sowie das verbliebene Web-Bundle unter `/share/Docker/mattermost/client/plugins/mattermost-ai` wurden entfernt.
+
+Nach dem Neustart meldete der Mattermost-Container `healthy`; `/api/v4/system/ping` antwortete mit HTTP 200 und der frühere Plugin-Endpunkt mit HTTP 404. `mmctl plugin list` zeigte `mattermost-ai` weder unter aktiven noch deaktivierten Plugins. `mmctl bot list --all` zeigte die vier Bot-Konten als `Disabled`. Das separate Graphiti-Pilot-Image auf `centralserver` blieb unverändert und hat keine Mattermost-Anbindung.
+
+Mattermost bewahrt bei der regulären Plugin-Deinstallation Konfiguration und Plugin-Daten im Server auf; auch deaktivierte Bot-Datensätze und historische Posts bleiben erhalten. Diese Datensätze wurden nicht direkt in der Datenbank gelöscht, da Mattermost dafür keinen unterstützten `mmctl`- oder System-Console-Weg anbietet. Das ändert nichts am Ergebnis: Der Custom Plugin ist nicht mehr installiert oder aktiv. Siehe [Mattermost: Remove a plugin](https://docs.mattermost.com/administration-guide/configure/manage-plugins#remove-a-plugin).

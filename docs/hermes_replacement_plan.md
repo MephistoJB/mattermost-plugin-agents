@@ -1,5 +1,7 @@
 # Plan: Mattermost-Agent als Hermes-Ersatz mit gemeinsamem Graphiti-Memory
 
+**Archiviert:** Der Nutzer hat am 22.09.2026 entschieden, keinen Custom Mattermost Plugin mehr zu betreiben. Plugin-Ausbau und Hermes-Off-Cutover nach diesem Plan werden nicht fortgesetzt. Der tatsächliche Rückbau und der gesicherte Entwicklungsstand stehen in [Stand und Rückbau](stand_und_rueckbau_2026-09-22.md).
+
 Stand: 2026-09-22. Dieses Dokument ist ein Arbeitsplan, keine Freigabe für Installation oder Abschaltung.
 
 ## Ziel und geprüfter Ausgangspunkt
